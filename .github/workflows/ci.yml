@@ -1,0 +1,37 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.11", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install pytest
+      - run: python -m pytest -q
+      - name: CLI smoke
+        run: |
+          T=$(mktemp -d)
+          ./bin/wz --version
+          ./bin/wz init --answers examples/fernhill/answers.json --dir "$T/ws" --no-git
+          ./bin/wz --config "$T/ws/wz.toml" install timers --dry-run --root "$T/home"
+          ./bin/wz --config "$T/ws/wz.toml" status
+          ./bin/wz init --simple --answers examples/qual-guides/answers.json --dir "$T/qg" --no-git
+          ./bin/wz --config "$T/qg/wz.toml" status
+          python3 examples/qual-guides/tools/qg.py guide-check examples/qual-guides/projects/larkspur-tool-library/guide.md
+          python3 examples/qual-guides/tools/qg.py lint examples/qual-guides/projects/larkspur-tool-library/guide.md

@@ -1,0 +1,55 @@
+{
+  "project": "fernhill",
+  "description": "A greenhouse controller: web dashboard, controller firmware, a bench, and the paperwork.",
+  "workflows": [
+    "software",
+    "firmware",
+    "hardware",
+    "admin"
+  ],
+  "stores": {
+    "app": {
+      "kind": "git",
+      "path": "../fernhill-app",
+      "main": "main",
+      "integration": "integration",
+      "checks": [
+        "python3 -m pytest -q"
+      ]
+    },
+    "firmware": {
+      "kind": "git",
+      "path": "../fernhill-fw",
+      "main": "main",
+      "integration": "integration",
+      "checks": [
+        "make test"
+      ]
+    },
+    "office": {
+      "kind": "folder",
+      "path": "../fernhill-office"
+    }
+  },
+  "roles": {},
+  "resources": {
+    "bench-psu": {
+      "kind": "instrument",
+      "note": "bench power supply"
+    },
+    "board-a": {
+      "kind": "device",
+      "note": "controller board on the bench"
+    }
+  },
+  "accounts": {
+    "main": {
+      "config_dir": "",
+      "daily_usd": 40
+    }
+  },
+  "budget_usd": 40,
+  "sign": "pin",
+  "digest_time": "08:00",
+  "lead_model": ""
+}

@@ -1,0 +1,61 @@
+# A made-up bench: the fernhill greenhouse controller board, simulated by sim/ so the loop runs on any computer.
+[project]
+name = "fernhill-bench"
+workflows = ["bench"]
+digest_time = "08:00"
+
+[budget]
+daily_usd = 10.0
+
+[roles.mission-ctl]
+pack = "lead"
+
+[roles.bench]
+pack = "bench"
+timeout = "1h"
+[roles.bench.owns]
+workspace = ["bench/**", "sim/**", "scenarios/**"]
+
+# The device under test. Its pairing slot belongs to one test phone; a lease ends after two hours at most.
+[resources.board-a]
+kind = "device"
+ids = ["FH-0001"]
+state = ".sim/board-a"
+pair_only_with = "phone-b"
+max_hold = "2h"
+
+[resources.phone-b]
+kind = "phone"
+ids = ["TESTPHONE-B"]
+
+# The owner's own phone: no job may lease it, and the guard refuses any command naming its id.
+[resources.owner-phone]
+kind = "phone"
+protected = true
+ids = ["OWNERPHONE-1"]
+
+[resources.analyser]
+kind = "instrument"
+scpi = "127.0.0.1:5025"
+note = "bench power analyser (sim/scpi_sim.py stands in for it)"
+
+# Hazardous: every step on it is attended only.
+[resources.cell-1]
+kind = "battery"
+hazard = true
+note = "the board's rechargeable cell"
+
+[bench]
+evidence_dir = "bench/runs"
+
+[bench.budget.default]
+flash = "512K"
+ram = "64K"
+
+[bench.safety]
+attended_only = true
+
+[bench.safety.limits]
+volts = [3.0, 3.6]
+amps = [0.0, 0.5]
+temp_c = [0, 45]

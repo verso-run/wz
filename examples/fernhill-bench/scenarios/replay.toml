@@ -1,0 +1,54 @@
+# The whole loop on board-a: host build and tests, firmware inside its budget, flash, drive with generated inputs,
+# capture the analyser, pull the board's records, host parity byte for byte, then the app on the test phone.
+name = "replay"
+device = "board-a"
+phone = "phone-b"
+instruments = ["analyser"]
+cwd = ".."
+timeout = "1h"
+safe_state = "echo 'analyser output off' > {run}/safe-state.txt"
+
+[[step]]
+kind = "host"
+run = "python3 -c \"import sys; sys.path.insert(0, 'sim'); import ctl; assert ctl.run([400] * 4) == ctl.run([400] * 4)\""
+
+[[step]]
+kind = "firmware"
+run = "python3 sim/build.py --out {run}/build"
+size_file = "{run}/build/size.txt"
+budget = "default"
+
+[[step]]
+kind = "hand"
+text = "Connect the analyser's leads to board-a's supply pins and switch its output on"
+resource = "board-a"
+timeout = "30m"
+
+[[step]]
+kind = "flash"
+run = "python3 sim/device.py flash {run}/build/app.img --state {device.state}"
+
+[[step]]
+kind = "drive"
+run = "python3 sim/gen_inputs.py --seed 1 --n 600 --out {run}/inputs.txt && python3 sim/device.py play {run}/inputs.txt --state {device.state}"
+
+[[step]]
+kind = "capture"
+instrument = "analyser"
+read = { volts = "MEAS:VOLT?", amps = "MEAS:CURR?", temp_c = "MEAS:TEMP?" }
+
+[[step]]
+kind = "records"
+run = "python3 sim/device.py dump --state {device.state} --out {run}/device.bin"
+out = "device.bin"
+
+[[step]]
+kind = "parity"
+run = "python3 sim/host_ref.py {run}/inputs.txt {run}/host.bin"
+device = "{run}/device.bin"
+host = "{run}/host.bin"
+record = 8
+
+[[step]]
+kind = "app"
+run = "python3 sim/app_e2e.py --phone {phone} --records {run}/device.bin"

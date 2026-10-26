@@ -1,0 +1,41 @@
+name: simple-install
+
+# The simple install, end to end, on machines with nothing of ours on them. No Claude sign-in is possible here, so the
+# part that needs a person (signing in) is not run; see START-HERE.md.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: install, run twice, safe defaults, uninstall (scratch HOME, no Homebrew on PATH)
+        run: bash tests/simple-install/e2e.sh "$PWD"
+      - name: Claude Code without a login (what a headless run can and cannot do here)
+        run: |
+          export PATH="$(mktemp -d)/x:$PATH"
+          H=$(mktemp -d); export HOME=$H
+          curl -fsSL https://claude.ai/install.sh | bash -s stable
+          "$HOME/.local/bin/claude" --version
+          set +e
+          "$HOME/.local/bin/claude" -p "say hello" --max-budget-usd 0.01 > out.txt 2>&1
+          echo "claude -p without a login exits $?"; head -c 400 out.txt
+
+  ubuntu-clean:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: clean Ubuntu 24.04, no sudo, no git, no Python
+        run: |
+          docker build -t wz-clean-ubuntu tests/simple-install
+          docker run --rm -v "$PWD":/src:ro wz-clean-ubuntu bash /src/tests/simple-install/e2e.sh /src
