@@ -506,6 +506,7 @@ flowchart TD
 |---|---|---|
 | Config | `wz.toml` | project, stores (git or folder), roles and their owned paths, rings, accounts, resources, budgets |
 | Charters | `wz charters` → `roles/<role>/CHARTER.md` | each role's instructions, built from the config, its pack and the rules |
+| Team changes | `wz role`, `wz rule`, `wz owns` (`add` / `remove`) | the owner changes helpers, rules and owned paths without editing `wz.toml` by hand |
 | Queue | `wz job`, `.wz/jobs/` | priority, dependency, timeout, leases, per-job commit unlock |
 | Serve | `wz serve` (timer, every minute; `--follow` by hand) | claims ready jobs within each role's cap and the budget; one supervisor per job |
 | Guard | `wz hook guard` (PreToolUse) | ownership, pattern kills, secrets, unlocks, protected branches, owner-only commands, web and MCP tools |
@@ -564,6 +565,27 @@ store = "office"
 [roles.writer.owns]
 office = ["drafts/**"]
 ```
+
+### Changing the team without editing the file
+
+You can edit `wz.toml` by hand, or let wz do the common changes. These are the owner's commands: they run from your own
+terminal, and the guard refuses them inside any role session.
+
+```sh
+wz owns add writer office 'drafts/**'          # a helper may write this path (role, store, path)
+wz owns remove writer office 'drafts/**'
+wz rule add app "Run the full suite before you report."   # one more standing rule in that helper's charter
+wz rule remove app "Run the full suite before you report."
+wz role add designer --pack admin --store office --owns office='mocks/**'
+wz role remove designer
+```
+
+Add `--dry-run` to any of them to see the change without making it. Each command edits the text of `wz.toml`, so your comments
+and the order of the file stay. Before it writes, it checks that the edited file means exactly what you asked, that wz accepts
+it, and (for paths) that no other role owns an overlapping path (each path has one owner). It keeps the old file in
+`.wz/backups/`, rebuilds the affected charters and prints what changed. When the file is written in a form it cannot edit
+safely, it changes nothing and says what to add by hand. A role removed this way keeps its `roles/<name>/` folder. A role session that is already open
+keeps its old charter until it is restarted (`wz cli <role> --restart`).
 
 Packs: `lead`, `software`, `tester`, `firmware`, `hardware`, `bench`, `release`, `admin` and `auditor`. A role may override `desc`,
 `model`, `effort`, `account`, `cap` (concurrent jobs, default 1), `timeout` and `rules`. `[resources.<name>]` declares

@@ -10,8 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import (__version__, approvals, bench, budget, charters, config, digest, featureflags, flags, guard, hands, jobs,
-               leases, merge, records, registry, release, review, sessions, worker, scan, setup_mode, timers, unlock, upkeep, watchdog)
+from . import (__version__, packs, approvals, bench, budget, charters, config, digest, featureflags, flags, guard, hands, jobs,
+               leases, merge, records, registry, release, review, sessions, worker, scan, setup_mode, team, timers, unlock, upkeep, watchdog)
 from .util import now
 
 
@@ -173,6 +173,30 @@ def cmd_charters(args) -> int:
     cfg = _cfg(args)
     for p in charters.write_all(cfg):
         print(f"wrote {p}")
+    return 0
+
+
+def cmd_role(args) -> int:
+    cfg = _cfg(args)
+    if args.action == "add":
+        print(team.role_add(cfg, args.name, args.pack, store=args.store, owns=args.owns, desc=args.desc, model=args.model,
+                            account=args.account, cap=args.cap, web=args.web, dry_run=args.dry_run))
+    else:
+        print(team.role_remove(cfg, args.name, dry_run=args.dry_run))
+    return 0
+
+
+def cmd_rule(args) -> int:
+    cfg = _cfg(args)
+    fn = team.rule_add if args.action == "add" else team.rule_remove
+    print(fn(cfg, args.role, args.text, dry_run=args.dry_run))
+    return 0
+
+
+def cmd_owns(args) -> int:
+    cfg = _cfg(args)
+    fn = team.owns_add if args.action == "add" else team.owns_remove
+    print(fn(cfg, args.role, args.store, args.path, dry_run=args.dry_run))
     return 0
 
 
@@ -763,6 +787,69 @@ def parser() -> argparse.ArgumentParser:
 
     add("charters", cmd_charters, "regenerate charters, AGENTS.md and the hook settings from wz.toml")
 
+    def owner_cmd(name, fn, help_, epilog):
+        s = add(name, fn, help_)
+        s.epilog = epilog
+        s.formatter_class = argparse.RawDescriptionHelpFormatter
+        s.description = help_ + "\n\nOnly you, the owner, can run this, from your own terminal; a role cannot."
+        return s.add_subparsers(dest="action", required=True, metavar="add|remove")
+
+    def dry(sp):
+        sp.add_argument("--dry-run", action="store_true", help="show what would change and write nothing")
+
+    rs = owner_cmd("role", cmd_role, "add a helper (role) to the team, or take one away", (
+        "What this does: adds or removes a [roles.NAME] section in wz.toml. Your comments and the order of the file stay as\n"
+        "they are. Before anything is written, wz checks that the result is valid and that no two roles own the same path.\n"
+        "Your old file is kept in .wz/backups/, and the charters are rebuilt so every role's instructions match.\n\n"
+        "Examples:\n"
+        "  wz role add designer --pack admin --store office --owns office='mocks/**'\n"
+        "  wz role add reviewer --pack auditor --dry-run\n"
+        "  wz role remove designer\n\n"
+        "The packs are: " + ", ".join(p for p in packs.PACKS if p != packs.LEAD) + ". A new helper owns nothing until you\n"
+        "give it paths (--owns here, or `wz owns add` later)."))
+    a = rs.add_parser("add", help="add a helper")
+    a.add_argument("name", help="lowercase letters, digits and dashes, for example designer")
+    a.add_argument("--pack", required=True, help="the kind of helper (see the list at the top of this page)")
+    a.add_argument("--store", help="the store its work lives in (default: the workspace folder)")
+    a.add_argument("--owns", action="append", metavar="STORE=PATH",
+                   help="a path it may write, for example app='src/**'; give --owns again for more")
+    a.add_argument("--desc", default="", help="one line on what it is for (default: the pack's)")
+    a.add_argument("--model", default="")
+    a.add_argument("--account", default="")
+    a.add_argument("--cap", type=int, help="how many of its jobs may run at once (default 1)")
+    a.add_argument("--web", action="store_true", help="let it use the web (off by default)")
+    dry(a)
+    a = rs.add_parser("remove", help="take a helper away (its folder and history stay)")
+    a.add_argument("name")
+    dry(a)
+
+    rl = owner_cmd("rule", cmd_rule, "add a standing rule to one helper's charter, or take one away", (
+        "What this does: adds the sentence to that role's `rules` in wz.toml and rebuilds its charter, so the role reads it at\n"
+        "the start of its next session or job. Only rules added this way can be removed this way.\n\n"
+        "Examples:\n"
+        "  wz rule add app \"Run the full test suite before you report.\"\n"
+        "  wz rule remove app \"Run the full test suite before you report.\""))
+    for nm in ("add", "remove"):
+        a = rl.add_parser(nm, help=f"{nm} a rule")
+        a.add_argument("role")
+        a.add_argument("text", help="the rule, as one sentence in quotes")
+        dry(a)
+
+    ow = owner_cmd("owns", cmd_owns, "give a helper a path to own, or take one away", (
+        "What this does: a role may write only the paths it owns; the guard refuses the rest. This adds or removes one path in\n"
+        "[roles.NAME.owns] in wz.toml. A path that overlaps one another role owns is refused, because each path has one owner.\n"
+        "Paths are relative to the store: `src/**` is the folder src and everything in it, `README.md` is one file.\n\n"
+        "Examples:\n"
+        "  wz owns add app app 'src/**'            # role app, store app, the folder src\n"
+        "  wz owns add writer office 'drafts/**'\n"
+        "  wz owns remove app app 'src/**'"))
+    for nm in ("add", "remove"):
+        a = ow.add_parser(nm, help=f"{nm} a path")
+        a.add_argument("role")
+        a.add_argument("store", help="the store the path is in (workspace is the project folder itself)")
+        a.add_argument("path")
+        dry(a)
+
     s = add("job", cmd_job, "add, list, show, hold, release or cancel jobs")
     js = s.add_subparsers(dest="action")
     a = js.add_parser("add")
@@ -1030,6 +1117,6 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return int(args.fn(args) or 0)
     except (config.ConfigError, jobs.JobError, leases.LeaseError, setup_mode.SetupError, bench.BenchError,
-            release.ReleaseError, sessions.SessionError, registry.RegistryError, ValueError) as e:
+            release.ReleaseError, sessions.SessionError, registry.RegistryError, team.TeamError, ValueError) as e:
         print(f"wz: {e}", file=sys.stderr)
         return 1

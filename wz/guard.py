@@ -141,6 +141,8 @@ _OWNER_ONLY = [
     (re.compile(r"\bwz\s+approve\b"), "the approval page is the owner's"),
     (re.compile(r"\bwz\s+hand\s+(done|refuse|attend|leave)\b"),
      "only a person at the bench answers a hand-step or declares attendance; ask and wait (`wz hand wait`)"),
+    (re.compile(r"\bwz\s+(role|rule|owns)\s+(add|remove)\b"),
+     "changing the team, its paths and its rules is the owner's; put the exact command in your report for them to run"),
     (re.compile(r"\bwz\s+review\s+words\b"), "the owner's words are the owner's; leave that section for them"),
 ]
 _LEAD_ONLY = [
