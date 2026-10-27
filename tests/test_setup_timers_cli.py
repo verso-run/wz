@@ -153,8 +153,10 @@ def test_simple_setup_refuses_unsafe_or_uncapped(tmp_path):
         setup_mode.apply({**setup_mode.SIMPLE_EXAMPLE, "permission_mode": "yolo"}, tmp_path / "c", git_init=False)
 
 
-def test_full_setup_default_is_unchanged(tmp_path):
+def test_full_setup_without_a_mode_is_the_safe_default(tmp_path):
     cfg = setup_mode.apply(setup_mode.ANSWERS_EXAMPLE, tmp_path / "ws", git_init=False)
+    assert cfg.agent()["permission_mode"] == "default"
+    cfg = setup_mode.apply({**setup_mode.ANSWERS_EXAMPLE, "permission_mode": "bypassPermissions"}, tmp_path / "ws2", git_init=False)
     assert cfg.agent()["permission_mode"] == "bypassPermissions"
 
 

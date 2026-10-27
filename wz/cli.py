@@ -11,11 +11,18 @@ import sys
 from pathlib import Path
 
 from . import (__version__, approvals, bench, budget, charters, config, digest, featureflags, flags, guard, hands, jobs,
-               leases, merge, records, release, review, worker, scan, setup_mode, timers, unlock, upkeep, watchdog)
+               leases, merge, records, registry, release, review, sessions, worker, scan, setup_mode, timers, unlock, upkeep, watchdog)
+from .util import now
 
 
 def _cfg(args) -> config.Config:
-    return config.load(Path(args.config) if getattr(args, "config", None) else None)
+    if getattr(args, "config", None):
+        return config.load(Path(args.config))
+    path, how = config.locate()
+    cfg = config.load(path)
+    if how == "registered":
+        _say_workspace(cfg, how)      # no wz.toml here: say which workspace the command is about to act on
+    return cfg
 
 
 def _me() -> str:
@@ -63,6 +70,7 @@ def cmd_init(args) -> int:
         return setup_mode.launch_setup(d, simple=args.simple)
     cfg = setup_mode.apply(answers, d, force=args.force, git_init=not args.no_git, simple=args.simple)
     print(f"wrote {cfg.path}, the workspace files, {len(cfg.roles())} charters and the hook settings")
+    _remember(cfg)
     if args.simple:
         print("next: `wz cli mission-ctl` to talk to wz. Nothing runs by itself: no timers are installed.")
     else:
@@ -70,47 +78,95 @@ def cmd_init(args) -> int:
     return 0
 
 
+def _remember(cfg, *, make_default: bool | None = True) -> None:
+    """Record the workspace in the per-user list (never fatal: a read-only home must not stop `wz init`)."""
+    try:
+        name, is_default = registry.register(cfg.path, cfg.project, make_default=make_default)
+    except OSError as e:
+        print(f"wz: could not record this workspace in {registry.path()}: {e}", file=sys.stderr)
+        return
+    print(f"registered workspace {name!r}" + (" (the default: `wz cli mission-ctl` works from any folder)" if is_default
+                                              else f" (not the default; `wz workspaces use {name}` makes it so)"))
+
+
 def cmd_cli(args) -> int:
-    path = config.find(Path(args.dir).resolve() if args.dir else None) if not args.config else Path(args.config)
+    start = Path(args.dir).resolve() if args.dir else None
+    path, how = (Path(args.config), "env") if args.config else config.locate(start)
+    if getattr(args, "ws", None):
+        how = "chosen"
     if not path:
         if args.role in ("mission-ctl", None):
-            print("no wz.toml here: starting mission-ctl in setup mode")
+            print("no workspace is registered and there is no wz.toml here: starting mission-ctl in setup mode")
             return setup_mode.launch_setup(Path(args.dir or ".").resolve())
-        raise SystemExit("wz: no wz.toml here or above; run `wz init` first")
+        raise SystemExit("wz: no workspace is registered and there is no wz.toml here or above; run `wz init` first")
     cfg = config.load(path)
     role = args.role or cfg.lead()
-    r = cfg.role(role)
-    if not cfg.charter_path(role).is_file() or not cfg.role_settings.is_file():
-        charters.write_all(cfg)
-    a = cfg.agent()
-    cmd = [*a["command"].split(), "--append-system-prompt-file", str(cfg.charter_path(role)),
-           "--settings", str(cfg.role_settings), "--permission-mode", a["permission_mode"]]
-    if r["model"]:
-        cmd += ["--model", r["model"]]
-    if a.get("pass_effort") and r["effort"]:
-        cmd += ["--effort", r["effort"]]
-    cwd = cfg.store_root(r["store"])
-    env = {"WZ_ROLE": role, "WZ_CONFIG": str(cfg.path), "WZ_HOME": str(cfg.root), "WZ_SCRATCH": str(cfg.scratch(role))}
-    acct = cfg.account(r["account"]).get("config_dir") if r["account"] else ""
-    if acct:
-        env["CLAUDE_CONFIG_DIR"] = os.path.expanduser(acct)
-    cfg.scratch(role).mkdir(parents=True, exist_ok=True)
+    cfg.role(role)
+    if how == "here" and not registry.name_of(cfg.path):
+        _remember(cfg, make_default=None)
+    if how != "env":
+        _say_workspace(cfg, how)
     if args.print:
-        print("cd " + str(cwd))
-        print(" ".join(f"{k}={v}" for k, v in env.items()) + " " + " ".join(cmd))
+        return sessions.print_plan(cfg, role)
+    return sessions.open_role(cfg, role, detach=args.detach, no_tmux=args.no_tmux, restart=args.restart)
+
+
+def _say_workspace(cfg, how: str) -> None:
+    name = registry.name_of(cfg.path)
+    others = [n for n in registry.names() if n != name]
+    print(f"wz: workspace {name or cfg.project} ({cfg.root})" + (" from the registered default" if how == "registered" else "")
+          + (f"; others: {', '.join(others)} (--ws NAME)" if others else ""), file=sys.stderr)
+
+
+def cmd_workspaces(args) -> int:
+    reg = registry.load()
+    try:
+        if args.action == "use":
+            registry.use(args.name)
+            print(f"default workspace: {args.name}")
+            return 0
+        if args.action == "forget":
+            registry.forget(args.name)
+            print(f"forgot {args.name} (its files are untouched)")
+            return 0
+    except registry.RegistryError as e:
+        raise SystemExit(f"wz workspaces: {e}")
+    if not reg["workspaces"]:
+        print("no workspace registered; `wz init` makes one")
         return 0
-    if args.no_tmux or not shutil.which("tmux"):
-        return subprocess.call(cmd, cwd=str(cwd), env={**os.environ, **env})
-    name = f"wz-{timers._slug(cfg)}-{role}"
-    if subprocess.run(["tmux", "has-session", "-t", name], capture_output=True).returncode != 0:
-        t = ["tmux", "new-session", "-d", "-s", name, "-c", str(cwd)]
-        for k, v in env.items():
-            t += ["-e", f"{k}={v}"]
-        subprocess.run(t + cmd, check=True)
-    if args.detach:
-        print(f"started {name}; attach with: tmux attach -t {name}")
-        return 0
-    return subprocess.call(["tmux", "attach", "-t", name])
+    rows = [{"name": n + (" *" if n == reg["default"] else ""), "folder": str(Path(p).parent), "wz.toml": "" if Path(p).is_file() else "MISSING"}
+            for n, p in reg["workspaces"].items()]
+    print(_table(rows, ["name", "folder", "wz.toml"]))
+    print("* = the default, used when you are not inside a workspace folder; pick another with `--ws NAME`")
+    return 0
+
+
+def _session_cfg(args):
+    cfg = _cfg(args)
+    if getattr(args, "role", None):
+        cfg.role(args.role)
+    return cfg
+
+
+def cmd_park(args) -> int:
+    return sessions.park(_session_cfg(args), args.role)
+
+
+def cmd_roll(args) -> int:
+    return sessions.roll(_session_cfg(args), args.role)
+
+
+def cmd_start_all(args) -> int:
+    return sessions.start_all(_cfg(args))
+
+
+def cmd_list(args) -> int:
+    return sessions.list_roles(_cfg(args))
+
+
+def cmd_say(args) -> int:
+    cfg = _session_cfg(args)
+    return sessions.say(cfg, args.role, " ".join(args.text), sender=os.environ.get("WZ_ROLE") or "")
 
 
 def cmd_charters(args) -> int:
@@ -127,6 +183,9 @@ def cmd_job(args) -> int:
                      lease=args.lease or [], unlock=not args.no_unlock, brief=args.brief, evidence=args.evidence,
                      worktree=not args.no_worktree, by=_me())
         print(f"{j['id']} queued for {j['role']} (P{j['priority']}" + (f", after {j['after']}" if j["after"] else "") + ")")
+        hint = worker.serve_idle_hint(cfg)
+        if hint:
+            print("note: " + hint)
         return 0
     if args.action in ("list", None):
         every = jobs.all_jobs(cfg, args.role)
@@ -136,13 +195,25 @@ def cmd_job(args) -> int:
         rows = []
         for j in jobs.queue_order(every):
             note = jobs.wait_reason(cfg, j, by_id) if j["status"] == "queued" else (j.get("result") or {}).get("result", "")
+            if j["status"] == "running":
+                note = _activity_note(cfg, j)
             rows.append({"id": j["id"], "role": j["role"], "P": j["priority"], "status": j["status"],
                          "task": j["task"][:50], "note": (note or "")[:60]})
         print(_table(rows, ["id", "role", "P", "status", "task", "note"]))
+        if any(j["status"] == "queued" for j in every):
+            hint = worker.serve_idle_hint(cfg)
+            if hint:
+                print("\nnote: " + hint)
         return 0
     j_id = args.id
     if args.action == "show":
         print(json.dumps(jobs.get(cfg, j_id), indent=2))
+        return 0
+    if args.action == "tail":
+        j = jobs.get(cfg, j_id)
+        lines = worker.tail(cfg, j_id, args.n)
+        print(f"{j_id} ({j['role']}) is " + (_activity_note(cfg, j) if j["status"] == "running" else j["status"]))
+        print("\n".join(lines) if lines else "(the agent has written nothing yet)")
         return 0
     _lead_or_owner(cfg)
     if args.action == "remint":
@@ -155,9 +226,22 @@ def cmd_job(args) -> int:
     return 0
 
 
+def _activity_note(cfg, j: dict) -> str:
+    age, size = worker.activity(cfg, j)
+    mins = (now() - float(j["started_t"])) / 60 if j.get("started_t") else 0
+    if age is None or size == 0:
+        return f"running {mins:.0f} min, no output yet"
+    return f"running {mins:.0f} min, last output {int(age)} s ago"
+
+
 def cmd_serve(args) -> int:
     cfg = _cfg(args)
-    say = (lambda *_: None) if args.quiet else print
+    say = (lambda *_: None) if args.quiet else (lambda *a: print(*a, flush=True))
+    if args.follow:
+        if args.wait or args.dry_run:
+            raise SystemExit("wz serve: --follow already waits; do not combine it with --wait or --dry-run")
+        worker.follow(cfg, role=args.role, say=say, poll=args.poll)
+        return 0
     worker.serve(cfg, role=args.role, wait=args.wait, dry_run=args.dry_run, say=say)
     return 0
 
@@ -384,7 +468,7 @@ def cmd_install(args) -> int:
 
 def cmd_scan(args) -> int:
     pub = {}
-    path = Path(args.config) if args.config else config.find()
+    path = Path(args.config) if args.config else config.find(registered=False)   # a public tree is scanned by its own list
     if path:
         try:
             pub = config.load(path).section("publish")
@@ -419,7 +503,19 @@ def cmd_status(args) -> int:
                      "queued": sum(j["status"] == "queued" for j in mine), "held": sum(j["status"] == "held" for j in mine),
                      "halted": "yes" if worker.halted(cfg, role) else "", "unlock": "yes" if unlock.has(cfg, role) else ""})
     print(f"{cfg.project} — lead {cfg.lead()} — {cfg.root}")
+    mode = cfg.permission_mode()
+    print(f"permission mode: {mode}" + ("" if mode in config.SAFE_MODES else
+          f"  ({config.MODE_FACTS[mode]} See README \"Permission mode\".)"))
     print(_table(rows, ["role", "pack", "running", "queued", "held", "halted", "unlock"]))
+    live = [j for j in every if j["status"] == "running"]
+    if live:
+        print("\nrunning now:")
+        for j in live:
+            print(f"  {j['id']} ({j['role']}) {_activity_note(cfg, j)}")
+    if any(j["status"] == "queued" for j in every):
+        hint = worker.serve_idle_hint(cfg)
+        if hint:
+            print("\nnote: " + hint)
     alerts = watchdog.check(cfg, apply=False)
     print(f"\n{len(alerts)} alert(s); {len(approvals.pending(cfg))} sign(s) pending; {len(hands.waiting(cfg))} hand-step(s) "
           f"waiting; {len(release.open_holds(cfg))} open hold(s); spent today {budget.spent(cfg):.2f} USD")
@@ -618,11 +714,13 @@ def parser() -> argparse.ArgumentParser:
                                 "a job queue, a guard, and the owner's sign.")
     p.add_argument("--version", action="version", version=f"wz {__version__}")
     p.add_argument("--config", help="path to wz.toml (default: $WZ_CONFIG, else the nearest one above)")
+    p.add_argument("--ws", help="the registered workspace to use (`wz workspaces` lists them); default: the one you are in, else the default one")
     sub = p.add_subparsers(dest="cmd", metavar="<command>")
 
     def add(name, fn, help_=None):
         sp = sub.add_parser(name, help=help_, description=help_) if help_ else sub.add_parser(name)
         sp.set_defaults(fn=fn)
+        sp.add_argument("--ws", default=argparse.SUPPRESS, help=argparse.SUPPRESS)      # also accepted after the command
         return sp
 
     s = add("init", cmd_init, "set up a project (interview by the lead, or --plain / --answers); --example runs the first job")
@@ -638,12 +736,30 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--print-charter", action="store_true",
                    help="write the setup instructions to .wz/setup/CHARTER.md and print its path (for a Claude session that is already open)")
 
-    s = add("cli", cmd_cli, "start a role's interactive session in tmux (no config + mission-ctl = setup mode)")
+    s = add("cli", cmd_cli, "open a role's interactive session: one named Claude conversation, kept in tmux and resumed each time "
+                            "(no config + mission-ctl = setup mode)")
     s.add_argument("role", nargs="?")
     s.add_argument("--dir")
-    s.add_argument("--detach", action="store_true")
-    s.add_argument("--no-tmux", action="store_true")
+    s.add_argument("--detach", action="store_true", help="start it in tmux but do not attach")
+    s.add_argument("--no-tmux", action="store_true", help="run Claude in this terminal instead of tmux")
+    s.add_argument("--restart", action="store_true", help="close the running session and start it again with the current settings "
+                                                          "(the conversation is resumed)")
     s.add_argument("--print", action="store_true", help="print the command instead of running it")
+
+    s = add("start-all", cmd_start_all, "after a reboot: start every role that had a session and is not parked, one at a time, "
+                                        "each confirmed at Claude's input box")
+    s = add("park", cmd_park, "close a role's session and leave it alone until `wz cli <role>` (its conversation is kept)")
+    s.add_argument("role")
+    s = add("roll", cmd_roll, "give a role a fresh conversation (new name), started in tmux")
+    s.add_argument("role")
+    add("list", cmd_list, "each role's session: tmux name, conversation name and state")
+    s = add("say", cmd_say, "type a line into a role's live session and confirm it was sent; a role with no live session gets it as a "
+                            "note at the top of its STATE.md (never a job)")
+    s.add_argument("role")
+    s.add_argument("text", nargs="+")
+    s = add("workspaces", cmd_workspaces, "list the registered workspaces; `use NAME` sets the default, `forget NAME` removes one")
+    s.add_argument("action", nargs="?", choices=["list", "use", "forget"], default="list")
+    s.add_argument("name", nargs="?")
 
     add("charters", cmd_charters, "regenerate charters, AGENTS.md and the hook settings from wz.toml")
 
@@ -668,6 +784,9 @@ def parser() -> argparse.ArgumentParser:
         a.add_argument("id")
         if name in ("cancel", "hold"):
             a.add_argument("--why")
+    a = js.add_parser("tail", help="what a job's agent last said or did")
+    a.add_argument("id")
+    a.add_argument("-n", type=int, default=10, help="how many lines (default 10)")
     a = js.add_parser("remint", help="re-queue a failed, blocked or cancelled job; dependents follow the new id")
     a.add_argument("id")
     a.add_argument("--timeout", help="default: the old timeout, doubled when it timed out")
@@ -680,6 +799,9 @@ def parser() -> argparse.ArgumentParser:
 
     s = add("serve", cmd_serve, "start ready jobs (the serve timer runs this every minute)")
     s.add_argument("--role")
+    s.add_argument("--follow", action="store_true",
+                   help="stay in the foreground: start ready jobs, wait, start what they unblock, stop when the queue is idle")
+    s.add_argument("--poll", type=float, default=3.0, help=argparse.SUPPRESS)
     s.add_argument("--wait", action="store_true", help="run each started job in the foreground")
     s.add_argument("--dry-run", action="store_true")
     s.add_argument("--quiet", action="store_true")
@@ -896,12 +1018,18 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
     if args.config:
         os.environ["WZ_CONFIG"] = str(Path(args.config).resolve())
+    elif getattr(args, "ws", None):
+        try:
+            os.environ["WZ_CONFIG"] = str(registry.lookup(args.ws))
+        except registry.RegistryError as e:
+            print(f"wz: {e}", file=sys.stderr)
+            return 1
     if not getattr(args, "fn", None):
         p.print_help()
         return 0
     try:
         return int(args.fn(args) or 0)
     except (config.ConfigError, jobs.JobError, leases.LeaseError, setup_mode.SetupError, bench.BenchError,
-            release.ReleaseError, ValueError) as e:
+            release.ReleaseError, sessions.SessionError, registry.RegistryError, ValueError) as e:
         print(f"wz: {e}", file=sys.stderr)
         return 1

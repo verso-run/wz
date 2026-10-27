@@ -8,8 +8,14 @@
 | M4 | "Double-barreled question", Wikipedia | https://en.wikipedia.org/wiki/Double-barreled_question | Creative Commons Attribution-ShareAlike 4.0 (as stated in sources/links.md) | double |
 | M5 | "Closed-ended question", Wikipedia | https://en.wikipedia.org/wiki/Closed-ended_question | Creative Commons Attribution-ShareAlike 4.0 (as stated in sources/links.md) | closed |
 | M6 | "Principles of plain language", Digital.gov (US GSA) | https://digital.gov/guides/plain-language/principles/ | none stated | plain-language |
+| M7 | "The Mom Test" book review, Michael Lynch | https://mtlynch.io/book-reports/the-mom-test/ | Creative Commons Attribution 4.0 (as the page states) | past-behaviour |
+| M8 | "Interviewing Users", Jakob Nielsen, Nielsen Norman Group | https://www.nngroup.com/articles/interviewing-users/ | none stated (as sources/links.md says: all rights reserved) | past-behaviour |
+| M9 | "How Many Interviews Are Enough?", Guest, Bunce and Johnson (abstract page) | https://citedrive.com/en/discovery/how-many-interviews-are-enough/ | none stated | sample-size |
+| M10 | "Six Ways to Improve Participant Recall", Jeff Sauro and Jim Lewis, MeasuringU | https://measuringu.com/six-ways-to-improve-recall/ | none stated | past-behaviour, timing |
+| M11 | "That smells like... um, I can't think of a word for it", Angus Chen, NPR via KPBS | https://www.kpbs.org/news/2018/jan/18/that-smells-like-um-i-cant-think-of-a-word-for-it | none stated (copyright NPR, per sources/links.md) | plain-language |
+| M12 | "Biases in Survey Research", Anol Bhattacherjee | https://socialsci.libretexts.org/Bookshelves/Social_Work_and_Human_Services/Social_Science_Research_-_Principles_Methods_and_Practices_%28Bhattacherjee%29/09:_Survey_Research/9.04:_Biases_in_Survey_Research | CC BY-SA 3.0 (as the page states) | sample-size |
 
-All six links were opened on 2026-10-26. Only links and short quotes are used; no source text is copied in bulk.
+All twelve links were opened on 2026-10-26 (M1-M6 earlier, M7-M12 in job-0003). Only links and short quotes are used; no source text is copied in bulk.
 
 ## Rules
 
@@ -71,7 +77,37 @@ Start broad and easy, put facts before opinions, and ask the sensitive things la
 - Quote: "If you are going to ask about both facts and opinions, start with the factual questions."
 - Also M1 (page advises starting with general questions; the exact line "Start with general questions." was read but is not machine-checked here).
 
+### Past behaviour
+Ask what the person actually did, last time, not what they think they would do. Avoid "Would you...?" and "How much would you pay?" questions; people guess badly about the future and about their own past. If memory is needed, start with the most recent time and work backward.
+- Weak: "Would you pay £4 a month for a car scent?" Better: "Tell me about the last time you bought something for your car's smell. What did you pick, and what did it cost?"
+- Source M7: https://mtlynch.io/book-reports/the-mom-test/
+- Quote: "Ask about specifics in the past instead of generics or opinions about the future."
+- Also M8: https://www.nngroup.com/articles/interviewing-users/
+- Quote: "Having users misremember the past or mispredict the future should both be shunned."
+- Also M10: https://measuringu.com/six-ways-to-improve-recall/
+- Quote: "consider asking about the most recent occurrences first and working backward."
+- Note (my reading of M8, not quoted): the page warns that recall is imperfect, so keep the window short and ask for concrete events.
+- Note (my reading of M7, not quoted): people overstate what they would pay; ask what they spend now.
+
+### Sample size
+Six to eight interviews can show the main themes if the people are similar, but plan a few more if you hear different stories. Keep the sample honest: note who was asked and who agreed, and include people who are not enthusiastic.
+- Weak: "Five friends said yes, so customers want it." Better: "Invite from the whole customer list, write down who was asked and who came, and stop when new interviews bring nothing new."
+- Source M9: https://citedrive.com/en/discovery/how-many-interviews-are-enough/ (abstract page only)
+- Quote: "basic elements for metathemes were present as early as six interviews"
+- Also M12: https://socialsci.libretexts.org/Bookshelves/Social_Work_and_Human_Services/Social_Science_Research_-_Principles_Methods_and_Practices_%28Bhattacherjee%29/09:_Survey_Research/9.04:_Biases_in_Survey_Research
+- Quote: "dissatisfied customers tend to be more vocal about their experience than satisfied customers"
+- Note (my reading of M9, not quoted): the same abstract says saturation came within the first twelve of sixty interviews; the study is one set of similar interviewees, so six is a floor to watch, not a promise.
+- Note (my reading of M12): the page is about surveys; the point about who chooses to answer carries over to who agrees to be interviewed.
+
+### Asking about smell (words)
+People find scents hard to put into words, so do not expect or demand exact descriptions. Offer examples to react to, or ask what it reminded them of.
+- Weak: "Describe the scent in three words." Better: "What does it remind you of, if anything?"
+- Source M11: https://www.kpbs.org/news/2018/jan/18/that-smells-like-um-i-cant-think-of-a-word-for-it
+- Quote: "it's very difficult to describe scents in English."
+- Note: this is a news article, not an interview method; it supports the caution only, and no source here gives a method for asking about smell.
+
 ## What I did not read
 - Nothing was unread; all six links opened. The EDIS page redirected to ask.ifas.ufl.edu and was read there. Page summaries came through a fetch tool; only quotes that `qg.py quotes` can find are used as quotes.
 - The cited works by Bernard (2005) and Worley mentioned on M2 and M5 were not opened.
 - sources/ holds no PDFs.
+- M9 is the abstract page only; the full Guest, Bunce and Johnson paper was not opened. M12 was read as survey-bias text, not interview text. Fetch summaries were used to read M7-M12; quotes were then machine-checked.

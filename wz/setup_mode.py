@@ -75,7 +75,7 @@ def answers_to_config(a: dict, simple: bool = False) -> dict:
     name = str(a.get("project") or "").strip()
     if not name:
         raise SetupError("the answers need a project name")
-    mode = a.get("permission_mode") or ("default" if simple else "bypassPermissions")
+    mode = a.get("permission_mode") or config.DEFAULT_MODE
     if mode not in PERMISSION_MODES:
         raise SetupError(f"permission_mode must be one of {', '.join(PERMISSION_MODES)}")
     if simple:
@@ -155,6 +155,9 @@ def apply(answers: dict, d: Path, force: bool = False, git_init: bool = True, si
         gi.write_text("\n".join(lines + [".wz/"]) + "\n")
     cfg = config.load(target)
     records.init_files(cfg)
+    if simple:
+        charters.simple_marker(cfg).parent.mkdir(parents=True, exist_ok=True)
+        charters.simple_marker(cfg).write_text("made with `wz init --simple`\n")
     charters.write_all(cfg)
     if git_init and shutil.which("git"):
         inside = subprocess.run(["git", "-C", str(d), "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True)

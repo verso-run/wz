@@ -341,7 +341,7 @@ def review_problems(review: str, guide: str, methods: str | None = None) -> list
             probs.append(f"{where}: the quoted question is not in the guide")
         flag = r.get("flag", "").lower()
         if not any(w in flag for w in FLAG_WORDS):
-            probs.append(f"{where}: flag “{r.get('flag', '')}” is not one of leading, double-barrelled, jargon, yes/no, long")
+            probs.append(f"{where}: flag “{r.get('flag', '')}” is not one of {', '.join(FLAG_WORDS)}")
         ids = re.findall(r"\bM\d+\b", r.get("method source", ""))
         if not ids:
             probs.append(f"{where}: no methods source named")
@@ -428,6 +428,19 @@ def extract_quotes(text: str) -> list[tuple[int, str, str]]:
     return out
 
 
+QUOTE_END = ".;,:"
+
+
+def _fetch_norm(fetch, url: str):
+    """The page text, normalised; the exception if two tries both fail (a quote we could not check is not a checked quote)."""
+    for _ in (1, 2):
+        try:
+            return _norm(fetch(url))
+        except Exception as e:  # network, DNS, HTTP error
+            err = e
+    return err
+
+
 def quote_problems(path: Path, fetch=fetch_text) -> list[str]:
     probs, cache = [], {}
     for n, url, quote in extract_quotes(path.read_text()):
@@ -438,14 +451,16 @@ def quote_problems(path: Path, fetch=fetch_text) -> list[str]:
         if len(quote.split()) > MAX_QUOTE_WORDS:
             probs.append(f"{where}: quote is {len(quote.split())} words; keep it under {MAX_QUOTE_WORDS} (short quotes only)")
         if url not in cache:
-            try:
-                cache[url] = _norm(fetch(url))
-            except Exception as e:  # network, DNS, HTTP error: a quote we could not check is not a checked quote
-                cache[url] = e
+            cache[url] = _fetch_norm(fetch, url)
         page = cache[url]
+        needle = _norm(quote.replace("…", "").replace("...", ""))
+        if needle and needle[-1] in QUOTE_END:  # the page may carry on with ; or , where the quote stopped with a full stop
+            needle = needle[:-1]
+        if not isinstance(page, Exception) and needle not in page:
+            page = cache[url] = _fetch_norm(fetch, url)  # a page that failed then passed was seen: look once more before saying missing
         if isinstance(page, Exception):
             probs.append(f"{where}: could not fetch {url} ({page.__class__.__name__}: {page})")
-        elif _norm(quote.replace("…", "").replace("...", "")) not in page:
+        elif needle not in page:
             probs.append(f"{where}: this line is not on {url}: “{quote[:70]}”")
     return probs
 

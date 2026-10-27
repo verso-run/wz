@@ -6,7 +6,10 @@ It is a no-op unless WZ_ROLE is set (wz sets it for every role session and job).
   * a kill by pattern (pkill, killall, kill $(pgrep ...), pgrep | xargs kill);
   * a read of a secret (a path matching [guard] secrets, `env`/`printenv`, a $..._TOKEN-style variable);
   * git commit/tag/push without the job's unlock, force pushes, and pushes to the integration or main branches;
-  * owner-only commands (signing, the approval page, unlocking, lifting a halt) from a role session.
+  * owner-only commands (signing, the approval page, unlocking, lifting a halt) from a role session;
+  * a web tool (WebFetch, WebSearch) or an MCP tool (mcp__*, which reaches outside this machine) unless the role is
+    given web access in wz.toml (`web = true`, or a list of tool names/globs). Off unless set. It checks the tool's
+    name, not what it fetches; a `curl` in a shell is not a web tool to the guard.
 
 Exit 2 with the reason on stderr refuses the call; every refusal is appended to .wz/guard.log. The guard fails closed:
 if it cannot check a write-capable call it refuses it, and lets reads through. It is a seatbelt, not a sandbox: a
@@ -16,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import fnmatch
 import re
 import shlex
 import sys
@@ -29,11 +33,17 @@ from . import unlock as _unlock
 from .util import glob_match, is_within
 
 WRITE_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"}
+WEB_TOOLS = {"WebFetch", "WebSearch"}
 SHARED_GLOBS = ["briefs/*.md", "ledgers/*.md"]
 
 
 class Refuse(Exception):
-    pass
+    """A refusal. `fixable` is true when the reason itself says how to make the call acceptable (spell the path out,
+    kill the process you started): the role is then told to fix it and run it again, not to give up."""
+
+    def __init__(self, reason: str, fixable: bool = False):
+        super().__init__(reason)
+        self.fixable = fixable
 
 
 # ---- paths --------------------------------------------------------------------------------------------------------
@@ -269,7 +279,7 @@ def _is_env_dump(args: list[str]) -> bool:
 def check_bash(cfg, role: str, command: str, cwd: str, job: str | None) -> None:
     for rx, what in _KILL_PATTERNS:
         if rx.search(command):
-            raise Refuse(f"{what}: kill only the process ID you started (record $! and kill that), never by pattern")
+            raise Refuse(f"{what}: kill only the process ID you started (record $! and kill that), never by pattern", fixable=True)
     if _SECRET_VAR.search(command):
         raise Refuse("the command names a secret variable; agents never read or print secrets")
     prot = _leases.command_names_protected(cfg, command)
@@ -305,7 +315,7 @@ def check_bash(cfg, role: str, command: str, cwd: str, job: str | None) -> None:
                     raise Refuse(f"git {sub} needs an unlock: a job carries its own; in a chat session ask the lead for `wz unlock {role}`")
             if sub == "push":
                 if any(a in ("-f", "--force", "--mirror", "--delete", "-d") or a.startswith("--force") for a in rest):
-                    raise Refuse("force, mirror and delete pushes are refused; push your own branch plainly")
+                    raise Refuse("force, mirror and delete pushes are refused; push your own branch plainly", fixable=True)
                 prot = _protected(cfg)
                 for r in [a for a in rest if not a.startswith("-")][1:]:
                     dst = r.split(":", 1)[-1].lstrip("+")
@@ -314,13 +324,25 @@ def check_bash(cfg, role: str, command: str, cwd: str, job: str | None) -> None:
                         raise Refuse(f"{dst} is integrated by the merge step and promoted on the owner's sign, never pushed by a role")
         for target in targets + _arg_targets(args):
             if "$" in target or "`" in target:
-                raise Refuse(f"write target {target!r} uses a variable the guard cannot resolve; spell the path out")
+                raise Refuse(f"write target {target!r} uses a variable the guard cannot resolve; spell the path out", fixable=True)
             if any(c in target for c in "*?["):
                 target = str(Path(re.split(r"[*?\[]", target)[0] or ".") / "_")
             p = _norm(target, cwd)
             ok, why = may_write(cfg, role, p)
             if not ok:
                 raise Refuse(f"write to {p}: {why}")
+
+
+def is_network_tool(tool: str) -> bool:
+    """Tools that reach outside this machine: the web tools, and any MCP tool (the guard cannot see what a server does)."""
+    return tool in WEB_TOOLS or tool.startswith("mcp__")
+
+
+def web_allowed(cfg, role: str, tool: str) -> bool:
+    web = cfg.role(role)["web"]
+    if isinstance(web, bool):
+        return web
+    return any(fnmatch.fnmatchcase(tool, g) for g in web)
 
 
 def check(payload: dict, cfg, role: str, env: dict) -> None:
@@ -340,6 +362,10 @@ def check(payload: dict, cfg, role: str, env: dict) -> None:
             raise Refuse(f"write to {p}: {why}")
     elif tool == "Bash":
         check_bash(cfg, role, inp.get("command") or "", cwd, job)
+    elif is_network_tool(tool):
+        if not web_allowed(cfg, role, tool):
+            raise Refuse(f"{tool} reaches the web or an outside service, and web access is off for role {role} "
+                         f"(the owner sets `web = true` under [roles.{role}] in wz.toml to allow it)")
     elif tool in ("Read", "Grep", "Glob", "NotebookRead"):
         fp = inp.get("file_path") or inp.get("path") or inp.get("notebook_path")
         if fp and is_secret(cfg, _norm(fp, cwd)):
@@ -373,14 +399,17 @@ def main(stdin: str | None = None, env: dict | None = None) -> int:
         return 0
     except Refuse as r:
         _log(cfg, role, tool or "?", str(r))
-        sys.stderr.write(f"[wz guard] role {role}: {r}. Do not retry a variant; if the work needs it, "
-                         "put the request in your report and stop.\n")
+        if r.fixable:
+            tail = "Make that change and run it again; if the work still needs something this refuses, put the request in your report and stop."
+        else:
+            tail = "Do not retry a variant; if the work needs it, put the request in your report and stop."
+        sys.stderr.write(f"[wz guard] role {role}: {r}. {tail}\n")
         return 2
     except Exception as e:  # fail closed for anything that can write
-        if tool is not None and tool not in WRITE_TOOLS:
+        if tool is not None and tool not in WRITE_TOOLS and not is_network_tool(tool):
             return 0
         if cfg is not None:
             _log(cfg, role, tool or "?", f"GUARD_ERROR {e.__class__.__name__}: {e}")
         sys.stderr.write(f"[wz guard] could not check this call ({e.__class__.__name__}: {e}); refusing it rather than "
-                         "letting it through unchecked. Reads are unaffected.\n")
+                         "letting it through unchecked. Local reads are unaffected.\n")
         return 2

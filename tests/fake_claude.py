@@ -48,9 +48,19 @@ elif mode == "nodecl":
 elif mode == "asks":
     text = declare(owner_asks=["approve the logo", "pick a date", "read the draft", "sign the form"],
                    followups=[{"role": "tester", "task": "test the thing", "evidence_of_done": "suite green"}])
+elif mode == "gated":
+    # writes one stream event, then waits for the file named in FAKE_GATE before it finishes (progress tests)
+    print(json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "text", "text": "Reading the brief."},
+        {"type": "tool_use", "name": "Bash", "input": {"command": "ls briefs"}}]}}), flush=True)
+    deadline = time.time() + 30
+    while not os.path.exists(os.environ["FAKE_GATE"]) and time.time() < deadline:
+        time.sleep(0.05)
 elif mode == "sleep":
     child = subprocess.Popen(["sleep", "60"])
     Path(os.environ["FAKE_PIDFILE"]).write_text(str(child.pid))
     time.sleep(60)
+if "stream-json" in args:
+    print(json.dumps({"type": "system", "subtype": "init", "session_id": "sess-1"}), flush=True)
 print(json.dumps({"type": "result", "subtype": "success", "result": text, "session_id": "sess-1",
                   "total_cost_usd": 0.25}))

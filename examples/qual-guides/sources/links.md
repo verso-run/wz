@@ -26,3 +26,21 @@ from the page, and `python3 tools/qg.py quotes sources/links.md` checks again th
 
 6. https://digital.gov/guides/plain-language/principles/ — Digital.gov (US General Services Administration), "Principles of plain language". A US government website; the page states no separate licence, so only a link and a short quote are used here.
    - Quote: "Use language your audience understands and feels comfortable with."
+
+7. https://mtlynch.io/book-reports/the-mom-test/ — Michael Lynch, review of "The Mom Test". Openly licensed (the page says Creative Commons Attribution 4.0).
+   - Quote: "Ask about specifics in the past instead of generics or opinions about the future."
+
+8. https://www.nngroup.com/articles/interviewing-users/ — Jakob Nielsen, "Interviewing Users", Nielsen Norman Group. Free to read; all rights reserved, so only a link and a short quote are used here.
+   - Quote: "Having users misremember the past or mispredict the future should both be shunned."
+
+9. https://citedrive.com/en/discovery/how-many-interviews-are-enough/ — Guest, Bunce and Johnson, "How Many Interviews Are Enough?" (the abstract page). No licence stated; only a link and a short quote are used here.
+   - Quote: "basic elements for metathemes were present as early as six interviews"
+
+10. https://measuringu.com/six-ways-to-improve-recall/ — Jeff Sauro and Jim Lewis, "Six Ways to Improve Participant Recall", MeasuringU. Free to read; only a link and a short quote are used here.
+   - Quote: "consider asking about the most recent occurrences first and working backward."
+
+11. https://www.kpbs.org/news/2018/jan/18/that-smells-like-um-i-cant-think-of-a-word-for-it — Angus Chen, NPR (via KPBS), on how hard it is to put smells into words. Copyright NPR; only a link and a short quote are used here.
+   - Quote: "it's very difficult to describe scents in English."
+
+12. https://socialsci.libretexts.org/Bookshelves/Social_Work_and_Human_Services/Social_Science_Research_-_Principles_Methods_and_Practices_%28Bhattacherjee%29/09:_Survey_Research/9.04:_Biases_in_Survey_Research — Anol Bhattacherjee, "Biases in Survey Research". Openly licensed (the page says CC BY-SA 3.0).
+   - Quote: "dissatisfied customers tend to be more vocal about their experience than satisfied customers"

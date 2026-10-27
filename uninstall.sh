@@ -6,6 +6,7 @@ set -eu
 BIN="$HOME/.local/bin"
 DATA="${XDG_DATA_HOME:-$HOME/.local/share}/wz-install"
 MANIFEST="$DATA/manifest"
+WSLIST="${XDG_CONFIG_HOME:-$HOME/.config}/wz/workspaces.json"     # wz's own list of workspaces (`wz init` writes it)
 YES=0; DRY=0; KEEPCLAUDE=0
 for a in "$@"; do
   case "$a" in --yes|-y) YES=1 ;; --dry-run) DRY=1 ;; --keep-claude) KEEPCLAUDE=1 ;; -h|--help) sed -n '2,5p' "$0"; exit 0 ;;
@@ -24,6 +25,7 @@ recorded claude=added && [ "$KEEPCLAUDE" = 0 ] && say "  - Claude Code (not your
 recorded uv=added && say "  - uv, and the Python it fetched"
 ! recorded uv=added && recorded python_dir_was_empty=yes && say "  - the Python that uv fetched for wz"
 grep -q '^profile=' "$MANIFEST" && say "  - the three lines added to $(sed -n 's/^profile=//p' "$MANIFEST" | head -1)"
+[ -f "$WSLIST" ] && say "  - wz's list of your workspaces ($WSLIST); the folders themselves stay"
 say "It keeps your files: $(sed -n 's/^workspace=//p' "$MANIFEST" | head -1) and ~/.claude."
 if [ "$YES" != 1 ] && [ "$DRY" != 1 ]; then
   if [ -r /dev/tty ] && (exec </dev/tty) 2>/dev/null; then
@@ -62,9 +64,11 @@ if [ -n "$PF" ] && [ -f "$PF" ] && [ "$DRY" != 1 ]; then
   T=$(mktemp); awk '/# >>> wz install >>>/{skip=1} !skip{print} /# <<< wz install <<</{skip=0}' "$PF" > "$T" && cat "$T" > "$PF"; rm -f "$T"
   if recorded profile_created=yes && ! grep -q '[^[:space:]]' "$PF"; then rm -f "$PF"; fi
 elif [ -n "$PF" ]; then say "  would remove the marked lines from $PF"; fi
-# 6. the record itself, and folders the installer left empty
+# 6. the record itself, wz's list of workspaces, and folders the installer left empty
 do_ rm -rf "$DATA"
-for d in "$HOME/.local/share/uv" "$BIN" "$HOME/.local/share" "$HOME/.local/state" "$HOME/.local" "$HOME/.cache"; do
+do_ rm -f "$WSLIST"
+[ "$DRY" = 1 ] || rmdir "$(dirname "$WSLIST")" 2>/dev/null || true
+for d in "$HOME/.local/share/uv" "$BIN" "$HOME/.local/share" "$HOME/.local/state" "$HOME/.local" "$HOME/.cache" "$(dirname "$(dirname "$WSLIST")")"; do
   [ "$DRY" = 1 ] || rmdir "$d" 2>/dev/null || true
 done
 say ""

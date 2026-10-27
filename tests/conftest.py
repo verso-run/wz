@@ -21,6 +21,7 @@ def git(repo, *args):
 def _isolate(monkeypatch, tmp_path):
     for k in ("WZ_ROLE", "WZ_JOB", "WZ_CONFIG", "WZ_HOME", "WZ_SCRATCH", "WZ_WORKTREE", "CLAUDE_CONFIG_DIR"):
         monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg-config"))     # the workspace list: never the real one
     monkeypatch.setenv("GIT_AUTHOR_NAME", "wz test")
     monkeypatch.setenv("GIT_AUTHOR_EMAIL", "wz-test")
     monkeypatch.setenv("GIT_COMMITTER_NAME", "wz test")

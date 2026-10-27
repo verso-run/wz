@@ -13,34 +13,51 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import packs
+from . import packs, registry
 
 CONFIG_NAME = "wz.toml"
 WORKSPACE = "workspace"
 _NAME = re.compile(r"^[a-z][a-z0-9-]{0,39}$")
+
+# The permission modes wz accepts in [agent] permission_mode (the values `claude --permission-mode` accepts). A typo or
+# a value Claude Code does not know is refused on load. SAFE_MODES are the ones where Claude Code asks before it acts;
+# every other mode is allowed only when it is written down, and is announced at each `wz cli` and job start.
+SAFE_MODES = ("default", "plan")
+OTHER_MODES = ("acceptEdits", "auto", "dontAsk", "manual", "bypassPermissions")
+DEFAULT_MODE = "default"
 
 
 class ConfigError(Exception):
     pass
 
 
-def find(start: Path | None = None) -> Path | None:
-    """$WZ_CONFIG, else the nearest wz.toml at or above `start` (default: the current directory)."""
+def locate(start: Path | None = None, *, registered: bool = True) -> tuple[Path | None, str]:
+    """Where the workspace is, and how it was found: "env" ($WZ_CONFIG), "here" (a wz.toml at or above `start`, default
+    the current folder), "registered" (the per-user default, see registry.py) or "" (nowhere)."""
     env = os.environ.get("WZ_CONFIG")
     if env:
         p = Path(env).expanduser()
-        return p if p.is_file() else None
+        return (p, "env") if p.is_file() else (None, "")
     d = (start or Path.cwd()).resolve()
     for p in (d, *d.parents):
         if (p / CONFIG_NAME).is_file():
-            return p / CONFIG_NAME
-    return None
+            return p / CONFIG_NAME, "here"
+    if registered:
+        found = registry.default()
+        if found:
+            return found[1], "registered"
+    return None, ""
+
+
+def find(start: Path | None = None, *, registered: bool = True) -> Path | None:
+    """$WZ_CONFIG, else the nearest wz.toml at or above `start`, else the registered default workspace."""
+    return locate(start, registered=registered)[0]
 
 
 def load(path: Path | None = None) -> "Config":
     p = Path(path) if path else find()
     if not p:
-        raise ConfigError(f"no {CONFIG_NAME} here or above; run `wz init` to create one")
+        raise ConfigError(f"no {CONFIG_NAME} here or above and no workspace is registered; run `wz init` to create one")
     try:
         data = tomllib.loads(p.read_text())
     except tomllib.TOMLDecodeError as e:
@@ -121,6 +138,7 @@ class Config:
                 "rules": list(pack.get("rules", [])) + list(r.get("rules", [])),
                 "cap": int(r.get("cap", 1)),
                 "timeout": r.get("timeout", "45m"),
+                "web": r.get("web", False),
             }
         return out
 
@@ -141,9 +159,21 @@ class Config:
 
     # ---- other sections -----------------------------------------------------------------------------------------
     def agent(self) -> dict:
-        a = {"command": "claude", "permission_mode": "bypassPermissions", "pass_effort": True, "default_model": ""}
+        a = {"command": "claude", "permission_mode": DEFAULT_MODE, "pass_effort": True, "default_model": ""}
         a.update(self.section("agent"))
         return a
+
+    def permission_mode(self) -> str:
+        return self.agent()["permission_mode"]
+
+    def mode_notice(self) -> str | None:
+        """One line for the person at the keyboard when the mode is not one where Claude Code asks first, else None."""
+        mode = self.permission_mode()
+        if mode in SAFE_MODES:
+            return None
+        facts = MODE_FACTS.get(mode, "")
+        return (f"wz: permission mode is '{mode}' ([agent] permission_mode in {self.path}), not 'default'. "
+                f"{facts} Set it back to \"default\" to be asked first.")
 
     def account(self, name: str) -> dict:
         return self.section("accounts").get(name, {})
@@ -170,6 +200,10 @@ class Config:
         for name, s in stores.items():
             if s.get("kind") not in ("git", "folder"):
                 errs.append(f"[stores.{name}] kind must be git or folder")
+        mode = self.section("agent").get("permission_mode", DEFAULT_MODE)
+        if mode not in SAFE_MODES + OTHER_MODES:
+            errs.append(f"[agent] permission_mode {mode!r} is not a mode wz supports "
+                        f"(use one of: {', '.join(SAFE_MODES + OTHER_MODES)}; the safe ones are {', '.join(SAFE_MODES)})")
         roles = self.section("roles")
         if not roles:
             errs.append("no [roles.*] defined")
@@ -186,11 +220,24 @@ class Config:
             for s in (r.get("owns") or {}):
                 if s not in stores:
                     errs.append(f"[roles.{name}.owns] {s!r} is not a store")
+            web = r.get("web", False)
+            if not (isinstance(web, bool) or (isinstance(web, list) and all(isinstance(x, str) for x in web))):
+                errs.append(f"[roles.{name}] web must be true, false, or a list of tool names such as [\"WebSearch\"]")
             acct = r.get("account")
             if acct and acct not in self.section("accounts"):
                 errs.append(f"[roles.{name}] account {acct!r} is not an [accounts.*] entry")
         return errs
 
+
+# What each non-default mode means for the sentences "Claude asks before it acts" and "a background job cannot ask
+# permission". wz passes the mode to Claude Code unchanged; this says only what wz can stand behind.
+MODE_FACTS = {
+    "acceptEdits": "Claude Code accepts file edits without asking; it still asks for other actions, which a background job cannot be asked.",
+    "auto": "Claude Code decides for itself what to stop and ask about; wz has not checked what that is, so do not count on being asked.",
+    "dontAsk": "Claude Code does not ask; wz has not checked what it then allows, so do not count on being asked.",
+    "manual": "wz has only checked the 'default' mode; do not count on 'manual' asking in the same places.",
+    "bypassPermissions": "Claude Code does NOT ask before any action, and a background job runs without stopping.",
+}
 
 DEFAULT_SECRETS = [
     "*.pem", "*.key", "*.p12", "*.pfx", "*.keystore", "*.jks", "id_rsa*", "id_ecdsa*", "id_ed25519*",

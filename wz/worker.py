@@ -19,10 +19,12 @@ import shlex
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from . import budget, charters, flags, jobs, leases, records, unlock
-from .util import iso, now, read_json, write_json
+from .util import iso, now, parse_iso, read_json, write_json
+from .watchdog import GRACE_S
 
 DECL_KEYS = ("status", "block_reason", "result", "evidence", "owner_asks", "lead_asks", "followups")
 CONTRACT = """End your final message with ONE fenced ```json block with exactly these keys:
@@ -68,8 +70,33 @@ def wz_argv() -> list[str]:
     return [sys.executable, "-m", "wz"]
 
 
+SERVE_STALE_S = 300
+
+
+def _serve_mark(cfg) -> Path:
+    return cfg.state / "serve.last"
+
+
+def serve_age(cfg) -> float | None:
+    """Seconds since any `wz serve` last ran here (a timer or a person), or None if none ever has."""
+    t = (read_json(_serve_mark(cfg)) or {}).get("t")
+    return max(0.0, now() - float(t)) if t else None
+
+
+def serve_idle_hint(cfg) -> str | None:
+    """A sentence for the person when nothing has run `wz serve` lately, so queued jobs will not start by themselves."""
+    age = serve_age(cfg)
+    if age is not None and age < SERVE_STALE_S:
+        return None
+    seen = "`wz serve` has never run here" if age is None else f"`wz serve` last ran {int(age // 60)} min ago"
+    return (f"nothing starts queued jobs by itself unless the serve timer is installed ({seen}). "
+            "Run `wz serve --follow` to run the queue now and see it through, or `wz serve` to start what is ready.")
+
+
 def serve(cfg, role: str | None = None, wait: bool = False, dry_run: bool = False, say=print) -> list[str]:
     started = []
+    if not dry_run:
+        write_json(_serve_mark(cfg), {"t": now(), "at": iso()})
     for r in ([role] if role else list(cfg.roles())):
         cfg.role(r)
         why = halted(cfg, r)
@@ -102,6 +129,150 @@ def serve(cfg, role: str | None = None, wait: bool = False, dry_run: bool = Fals
             else:
                 _spawn(cfg, j["id"])
     return started
+
+
+def _alive(pid) -> bool:
+    if not pid:
+        return False
+    try:
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _why_not_started(cfg, j: dict, by_id: dict) -> str:
+    if j["role"] not in cfg.roles():
+        return f"its role {j['role']!r} is not in wz.toml, so it will not start"
+    if j["status"] == "held":
+        notes = [n for n in j.get("notes", []) if " held:" in n]
+        return "held: " + (notes[-1].split(" held:", 1)[1].strip() if notes else "no reason given") + \
+            f" (`wz job release {j['id']}`)"
+    why = halted(cfg, j["role"])
+    if why:
+        return why
+    ok, why = budget.allowed(cfg, j["role"])
+    if not ok:
+        return why
+    return jobs.wait_reason(cfg, j, by_id) or "ready, but the role is at its cap"
+
+
+def _never_started(j: dict) -> bool:
+    """A claimed job whose supervisor has not written its pid within the watchdog's grace period."""
+    claimed = parse_iso(j.get("claimed"))
+    return claimed is not None and now() - claimed > GRACE_S
+
+
+def _startable(cfg, role: str | None) -> bool:
+    every = jobs.all_jobs(cfg)
+    by_id = {j["id"]: j for j in every}
+    return any(j["status"] == "queued" and (role is None or j["role"] == role) and j["role"] in cfg.roles()
+               and jobs.wait_reason(cfg, j, by_id) is None and not halted(cfg, j["role"])
+               and budget.allowed(cfg, j["role"])[0] and len(jobs.running(cfg, j["role"])) < cfg.role(j["role"])["cap"]
+               for j in every)
+
+
+def follow(cfg, role: str | None = None, say=print, poll: float = 3.0) -> dict:
+    """Serve in the foreground until the queue is idle: start what is ready, wait for the running jobs, start what they
+    unblocked. It stops when nothing is running and nothing more can start, then says what each job left waiting is
+    waiting for. Jobs run as ordinary supervisors, so Ctrl-C stops the following, not the jobs. Returns {id: status}."""
+    seen: dict[str, str] = {}
+    said: set[str] = set()
+
+    def once(msg, *_):
+        if msg not in said:
+            said.add(msg)
+            say(msg)
+
+    try:
+        while True:
+            for jid in serve(cfg, role=role, say=once):
+                seen[jid] = "running"
+            for jid in [i for i, st in seen.items() if st == "running"]:
+                j = jobs.get(cfg, jid)
+                if j["status"] != "running":
+                    seen[jid] = j["status"]
+                    r = j.get("result") or {}
+                    say(f"{jid}: {j['status']}" + (f" - {r.get('result') or r.get('block_reason') or ''}" if r else "")
+                        + (f" (${j['cost_usd']:.2f})" if j.get("cost_usd") else ""))
+            live = []
+            for j in jobs.running(cfg, role):
+                if j.get("supervisor_pid") and not _alive(j["supervisor_pid"]):
+                    once(f"{j['id']}: its supervisor is gone; run `wz watchdog` to mark it failed")
+                elif not j.get("supervisor_pid") and _never_started(j):
+                    once(f"{j['id']}: claimed over {GRACE_S // 60} min ago and its supervisor never started; "
+                         "run `wz watchdog` to mark it failed")
+                else:
+                    live.append(j)
+            for j in jobs.all_jobs(cfg, role):
+                if j["status"] == "queued" and j["role"] not in cfg.roles():
+                    once(f"{j['id']}: role {j['role']!r} is not in wz.toml, so it will not start "
+                         f"(`wz job cancel {j['id']}`)")
+            if not live and not _startable(cfg, role):
+                break
+            time.sleep(poll)
+    except KeyboardInterrupt:
+        say("stopped following; jobs already started keep running (`wz status` shows them)")
+        return seen
+    by_id = {j["id"]: j for j in jobs.all_jobs(cfg)}
+    left = [j for j in by_id.values() if j["status"] in ("queued", "held") and (role is None or j["role"] == role)]
+    if left:
+        say("left waiting:")
+        for j in jobs.queue_order(left):
+            say(f"  {j['id']} ({j['role']}) {_why_not_started(cfg, j, by_id)}")
+    else:
+        say("queue idle: nothing left waiting")
+    return seen
+
+
+def activity(cfg, job: dict) -> tuple[float | None, int]:
+    """(seconds since the running job's output log last grew, its size in bytes); (None, 0) when no log exists yet."""
+    p = cfg.state / "logs" / f"{job['id']}.out"
+    try:
+        st = p.stat()
+    except OSError:
+        return None, 0
+    return max(0.0, time.time() - st.st_mtime), st.st_size
+
+
+def _brief_event(obj: dict) -> list[str]:
+    """One-line summaries of a stream-json event: what the agent said or which tool it called."""
+    out = []
+    msg = obj.get("message") if isinstance(obj.get("message"), dict) else {}
+    content = msg.get("content")
+    if obj.get("type") == "assistant" and isinstance(content, list):
+        for c in content:
+            if not isinstance(c, dict):
+                continue
+            if c.get("type") == "text" and str(c.get("text", "")).strip():
+                out.append("says: " + " ".join(str(c["text"]).split())[:110])
+            elif c.get("type") == "tool_use":
+                inp = c.get("input") if isinstance(c.get("input"), dict) else {}
+                arg = inp.get("command") or inp.get("file_path") or inp.get("pattern") or inp.get("url") or inp.get("query") or ""
+                out.append(f"{c.get('name', 'tool')}: " + " ".join(str(arg).split())[:100])
+    elif obj.get("type") == "result":
+        out.append("finished: " + " ".join(str(obj.get("result", "")).split())[:100])
+    return out
+
+
+def tail(cfg, job_id: str, n: int = 10) -> list[str]:
+    """The last n things the job's agent said or did, from its stream log (empty until it has produced any)."""
+    p = cfg.state / "logs" / f"{job_id}.out"
+    if not p.is_file():
+        return []
+    lines = []
+    for raw in p.read_text(errors="replace").splitlines():
+        raw = raw.strip()
+        if raw.startswith("{"):
+            try:
+                obj = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict):
+                lines += _brief_event(obj)
+    return lines[-n:]
 
 
 def _spawn(cfg, job_id: str) -> int:
@@ -187,7 +358,8 @@ def build_command(cfg, role: str, prompt: str, resume: str | None = None) -> lis
     a, r = cfg.agent(), cfg.role(role)
     cmd = shlex.split(a["command"]) + [
         "-p", prompt, "--append-system-prompt-file", str(cfg.charter_path(role)),
-        "--settings", str(cfg.role_settings), "--output-format", "json", "--permission-mode", a["permission_mode"],
+        "--settings", str(cfg.role_settings), "--output-format", "stream-json", "--verbose",
+        "--permission-mode", a["permission_mode"],
     ]
     if r.get("model"):
         cmd += ["--model", r["model"]]
@@ -291,20 +463,22 @@ def run_job(cfg, job_id: str) -> dict:
         return jobs.set_status(cfg, job_id, "queued", "a lease was taken before the job could start")
     wt = None
     try:
-        if not cfg.charter_path(job["role"]).is_file() or not cfg.role_settings.is_file():
-            charters.write_all(cfg)
+        charters.ensure(cfg, job["role"])
         cwd, branch, wt, base = prepare(cfg, job)
         cfg.scratch(job["role"]).mkdir(parents=True, exist_ok=True)
         if job.get("unlock"):
             unlock.grant(cfg, job["role"], job=job_id, hours=job["timeout_s"] / 3600 + 1, by="job")
         job.update(supervisor_pid=os.getpid(), started=iso(), started_t=now(), cwd=str(cwd), branch=branch, base=base,
-                   worktree_path=str(wt) if wt else None)
+                   worktree_path=str(wt) if wt else None, permission_mode=cfg.permission_mode())
         jobs.save(cfg, job)
 
         def _record_pid(pid):
             job["agent_pid"] = pid
             jobs.save(cfg, job)
 
+        notice = cfg.mode_notice()
+        if notice:
+            print(f"{notice} (job {job_id}, role {job['role']})", file=sys.stderr)
         logs = cfg.state / "logs"
         prompt = build_prompt(cfg, job, cwd, branch)
         env = build_env(cfg, job, cwd)

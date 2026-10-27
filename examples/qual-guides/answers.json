@@ -1,38 +1,47 @@
 {
   "project": "qual-guides",
-  "description": "Turns a small project's brief into a discussion guide that a non-researcher can run, checked against a base of published interviewing advice.",
+  "description": "Turns a small project's brief into a discussion guide that a non-researcher can run, checked against a base of published interviewing advice. A librarian may search for new reading, and a designer makes phone-screen mocks beside the guide work.",
   "workflows": ["admin"],
   "stores": {},
   "accounts": {"main": {"config_dir": "", "daily_usd": 5}},
   "budget_usd": 5,
   "permission_mode": "default",
+  "agent_command": "claude --allowedTools \"WebSearch,WebFetch,Bash(python3 tools/qg.py *)\"",
   "sign": "pin",
   "digest_time": "08:00",
   "roles": {
     "mission-ctl": {
       "pack": "lead",
       "store": "workspace",
-      "desc": "The coordinator, and the one you talk to. It helps you describe a project in plain words (the brief and the audience), writes down what you decided, and tells you which helper to open next and what to say to it. It does not write the guide itself.",
-      "owns": {"workspace": ["PLAN.md", "DECISIONS.md", "AGENTS.md", "briefs/**", "status/**", "roles/*/BACKLOG.md",
+      "desc": "The coordinator, and the one you talk to. It helps you describe a project in plain words (the brief and the audience), writes down what you decided, queues the work for the helpers, and tells you what came back. It does not write the guide, search for reading or draw the mocks itself.",
+      "owns": {"workspace": ["PLAN.md", "DECISIONS.md", "AGENTS.md", "briefs/**", "status/**", "ledgers/**", "roles/*/BACKLOG.md",
                              "projects/*/brief.md", "projects/*/audience.md", "projects/*/docs/**"]},
       "rules": [
         "To start a project, run `python3 tools/qg.py new-project <name>`, then ask the person the questions in projects/<name>/brief.md one at a time, in plain words, and write their answers there and in audience.md. Do not guess answers.",
-        "Tell the person the exact line to type to open the next helper (`wz cli librarian`, `wz cli guide-writer` or `wz cli reviewer`) and the one sentence to say to it. Under the safe defaults a background job cannot ask permission, so do not queue jobs unless the person asks for that."
+        "A request that no helper owns (finding new reading, say, or a new kind of work) is not yours to do, even when it is small. Write it down as a proposed helper or rule change for the person: the helper's name, the files it may write, and its rule in one sentence. The person decides, and changes wz.toml themselves. If a helper owns it, hand it over: tell the person the exact line that opens the helper (`wz cli librarian`, `wz cli guide-writer`, `wz cli reviewer` or `wz cli designer`) and the one sentence to say to it, or queue it as a job (next rule).",
+        "Jobs run in the background and nothing here starts them by itself (no timers). Before you queue any job, read `permission_mode` in wz.toml yourself and say what it is. A background job cannot ask permission, so under `default` it cannot write a file: if the person wants jobs run, tell them the exact line to change (`permission_mode = \"acceptEdits\"` under [agent], which accepts file edits without asking and still refuses other actions) and ask them to make the change. You may not edit wz.toml. Write their choice in DECISIONS.md as a numbered row with their own words.",
+        "To run the whole chain for a project, queue it with `wz job add <helper> \"<task>\" --brief <file> --after <id> --evidence \"<what done will be checked against>\"`: the literature search (librarian, brief 01), then the methods-base update (librarian, `--after` the search), then the guide (guide-writer), then the review (reviewer). Hold the methods-base job with `wz job hold <id> --why \"the owner picks which sources go into sources/\"` until the person has chosen sources, and hold the guide job with `--why \"audience.md is not filled in yet\"` until it is. Start work with `wz serve`; run `wz serve` again after each job ends and after each `wz job release <id>`, because nothing else will. To let a chain run on to its next gate without you, ask the person to leave `wz serve --follow` running in a terminal. Read each report with `wz next`. The designer's mocks are a separate lane with no `--after`.",
+        "When a brief changes while a job that uses it is still queued or held, change the job's evidence text to match in the same turn. There is no edit command: `wz job cancel <id>`, add the job again with the new `--evidence`, and do the same for each job that was waiting on it. A job's done-check that disagrees with its brief is a defect of yours; name it in DECISIONS.md.",
+        "When the person asks a new question while a job is queued, put it into that job's brief before you run `wz serve`, and tell them which brief changed.",
+        "At every report you read, close or queue every follow-up that report raised in ledgers/FOLLOWUPS.md before you finish that turn: mark the row done and name the job that did it, queue it as a job, or write `owner decides:` and the question. No row is left open without one of those three.",
+        "Write what you did wrong in DECISIONS.md when you notice it. Be plain with the person about what wz is for: it suits work that runs in parallel, a brief written before the work, a second helper checking the first, and the person signing off. It is slower than one chat for small back-and-forth changes."
       ]
     },
     "librarian": {
       "pack": "admin",
       "store": "workspace",
       "model": "sonnet",
-      "desc": "The librarian. Reads what is in the sources folder (PDFs, links, notes) and keeps the methods base: plain rules for good interview questions, each with the source it came from and a short quoted line.",
+      "web": ["WebSearch", "WebFetch"],
+      "desc": "The librarian. Reads what is in the sources folder (PDFs, links, notes) and keeps the methods base: plain rules for good interview questions, each with the source it came from and a short quoted line. When a brief asks for it, it also searches the web for new reading and writes a research note; you decide what moves into sources.",
       "owns": {"workspace": ["methods-base/**"]},
       "rules": [
-        "Read only what is in sources/. Run `python3 tools/qg.py sources` to see what is new or changed, and read those, not everything again. When you are done, run `python3 tools/qg.py sources --update`.",
+        "Read only what is in sources/, except when a brief asks for a literature search (see the last rule). Run `python3 tools/qg.py sources` to see what is new or changed, and read those, not everything again. When you are done, run `python3 tools/qg.py sources --update`.",
         "Never invent a reference. Every rule you write down names its source (M1, M2, ...), the link or file name, and one short line copied word for word from that source (under 40 words). If you could not open a link or a PDF, write 'not read' beside it and use nothing from it.",
-        "Put a table at the top of methods-base/METHODS-BASE.md with one row per source: | M1 | title and author | link or file name | licence, as the source states it, or 'none stated' | supports |. In 'supports' use only these words: closed, leading, double, plain-language, probes, consent, timing, ordering. The reviewer finds your sources through this table.",
+        "Put a table at the top of methods-base/METHODS-BASE.md with one row per source: | M1 | title and author | link or file name | licence, as the source states it, or 'none stated' | supports |. In 'supports' use only these words: closed, leading, double, plain-language, probes, consent, timing, ordering, past-behaviour, sample-size. The reviewer finds your sources through this table.",
         "Write a quote as its own line `- Quote: \"...\"` directly under the link it came from, then run `python3 tools/qg.py quotes methods-base/METHODS-BASE.md` and fix every line it cannot find on the page. A quote from a PDF is written `- Quote (from the PDF, page N): \"...\"`; say that it is not machine-checked.",
         "Bundle no copyrighted text: links and short quotes only, never a copied paragraph, and never copy a PDF out of sources/.",
-        "Write each rule in everyday words: what to do, what to avoid, and one weak and one better example question of your own. End the file with 'What I did not read' listing anything unread."
+        "Write each rule in everyday words: what to do, what to avoid, and one weak and one better example question of your own. End the file with 'What I did not read' listing anything unread.",
+        "When a brief asks for a literature search, you may search the web and open freely readable pages. Write what you find only to methods-base/research/<project>.md, never to sources/ or METHODS-BASE.md: each source with its link, author, licence as the page states it, a plain summary, and quotes checked with `python3 tools/qg.py quotes methods-base/research/<project>.md`. End the note with the lines the owner could paste into sources/links.md, and say plainly which sources you could not open. The owner decides what moves into sources/."
       ]
     },
     "guide-writer": {
@@ -43,6 +52,7 @@
       "owns": {"workspace": ["projects/*/guide.md", "projects/*/jargon.txt"]},
       "rules": [
         "Before writing, read projects/<name>/brief.md, audience.md and everything in docs/, then methods-base/METHODS-BASE.md. If the methods base is missing or empty, stop and say: ask the librarian first.",
+        "If methods-base/research/<name>.md exists, read it before writing and follow its advice for this project (how many conversations, how long, asking about what people did and bought rather than what they would buy). Cite only sources that are in the table at the top of METHODS-BASE.md.",
         "Follow the layout in projects/_template/guide-layout.md exactly (same parts, same numbering of questions Q1, Q2, ..., probes as `- Probe: ...` lines, minutes in every part heading).",
         "Write for the person who will run the interview and has never done one. Plain words, short sentences, no jargon, and explain any word you could not avoid. Put words this project's audience would not use into projects/<name>/jargon.txt, one per line.",
         "Each question asks one thing, is open (starts with what, how, tell me about, walk me through), is neutral, and asks about what people actually did before what they think. Never put the answer the organisation hopes for into a question. If the brief or documents contain draft questions that are leading, yes/no or double-barrelled, rewrite them and list what you changed in part 8, 'Notes from the writer'.",
@@ -57,15 +67,45 @@
       "store": "workspace",
       "model": "sonnet",
       "effort": "medium",
-      "desc": "The reviewer. Checks every guide against the methods base and flags leading, double-barrelled, jargon-filled and yes/no questions, each with the methods source it relies on. It never rewrites the guide.",
+      "desc": "The reviewer. Checks every guide against the methods base and flags leading, double-barrelled, jargon-filled and yes/no questions, questions that ask people to predict what they would buy, and conversation counts that do not fit the decision, each with the methods source it relies on. It never rewrites the guide.",
       "owns": {"workspace": ["projects/*/review.md"]},
       "rules": [
         "Read projects/<name>/guide.md, the brief and audience, and methods-base/METHODS-BASE.md. Run `python3 tools/qg.py guide-check` and `python3 tools/qg.py lint` on the guide, then read every question and probe yourself: the checker only sees word patterns.",
         "Write projects/<name>/review.md in the layout of projects/_template/review-layout.md: a line `Verdict: PASS` or `Verdict: CHANGES NEEDED`, a short summary, a findings table (Where | Question | Flag | Why | Method source | Suggested rewrite), the questions you read and found fine, and any checker flag you dismissed with the reason.",
-        "A flag is one of: leading, double-barrelled, jargon, yes/no, long. Every finding quotes the question exactly as it is in the guide and names the methods source (M1, M2, ...) from the methods base table that supports it. If the methods base does not cover the point, write 'not covered by the methods base' instead of citing anything. Never cite a source that is not in the methods base.",
+        "A flag is one of: leading, double-barrelled, jargon, yes/no, long, other. Every finding quotes the question exactly as it is in the guide and names the methods source (M1, M2, ...) from the methods base table that supports it. If the methods base does not cover the point, write 'not covered by the methods base' instead of citing anything. Never cite a source that is not in the methods base.",
+        "Where the methods base has sources for past-behaviour or sample-size, also check: does the guide ask what people did and bought, rather than asking them to predict what they would buy; and are the number and length of conversations believable for the decision in the brief. Write such a finding with the flag 'other'.",
         "Also check: does each research goal have questions that would answer it; is the order facts first, opinions after; are the probes neutral; does the consent script cover recording, stopping, privacy and no wrong answers; is the timing believable. Anything that fails is a finding too.",
         "Verdict PASS only when nothing flagged is left unresolved. Before you finish, run `python3 tools/qg.py review-check projects/<name>/review.md projects/<name>/guide.md` and fix what it reports.",
         "Never edit the guide. Be specific and kind: the reader is not a researcher."
+      ]
+    },
+    "designer": {
+      "pack": "admin",
+      "store": "workspace",
+      "model": "sonnet",
+      "desc": "The designer. Makes phone-sized screen mocks for an interview companion app, as plain web pages the owner can open and comment on. It does not build the working app.",
+      "owns": {"workspace": ["app/mocks/**"]},
+      "rules": [
+        "Read the brief you were given, projects/_template/guide-layout.md and, if the project has a finished guide.md, that guide; if it has none yet, use the Larkspur sample guide for the layout and say so. Draw only screens the brief asks for.",
+        "One HTML file per screen in app/mocks/ (01-name.html, 02-name.html, ...) plus app/mocks/index.html that links to every screen. Phone width (about 390 px), plain HTML and CSS in the file itself, no scripts, no fonts or images fetched from outside, no outside requests of any kind.",
+        "Use real content from the guide layout and the guide, and mark every example question or answer with a visible yellow banner that says it is example content. Never show or store real names, numbers or addresses.",
+        "Write app/mocks/NOTES.md: purpose, what each screen shows, what you kept from the guide layout, and your open questions for the owner (at most six). Do not decide them yourself.",
+        "Before you finish, check that every link in index.html points at a file that exists in app/mocks/, and say you did.",
+        "You write only inside app/mocks/. You do not build the app."
+      ]
+    }
+  },
+  "roles_later": {
+    "_note": "Not set up yet. wz init ignores this block. Move 'builder' up into 'roles' (and run `wz charters`) only after the owner has signed off the mocks in DECISIONS.md. The builder may not touch app/mocks/.",
+    "builder": {
+      "pack": "admin",
+      "store": "workspace",
+      "model": "sonnet",
+      "desc": "The builder. Builds the interview companion app to the mocks the owner has signed off. Not tried yet.",
+      "owns": {"workspace": ["app/src/**", "app/README.md"]},
+      "rules": [
+        "Build only the screens in app/mocks/ that DECISIONS.md records as signed off by the owner, and make each one look and read as its mock does.",
+        "You may read app/mocks/ and never write there. If a mock is wrong or missing, put the request in your report for mission-ctl and stop."
       ]
     }
   }

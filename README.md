@@ -285,13 +285,41 @@ You also need Claude Code installed and logged in (`claude` on your PATH). git i
 
 Read this before you start a timer.
 
-- Jobs run Claude Code with `--permission-mode bypassPermissions` by default, so a job's session does not stop to ask.
-  The guard is a seatbelt, not a sandbox (see "What the guard does not do" below).
+- wz passes `[agent] permission_mode` to Claude Code unchanged, and the default is `default`: Claude Code asks before it
+  acts. Any other mode has to be written in `wz.toml`, and wz says so at every `wz cli` and job start (see
+  "Permission mode" below). The guard is a seatbelt, not a sandbox (see "What the guard does not do" below).
 - Timers spend unattended, up to `[budget] daily_usd` per day. A job that is already running can pass that figure.
-- Run wz as a dedicated user or in a VM, an account that cannot reach what it must never touch. Or set
-  `[agent] permission_mode = "default"` in `wz.toml` to be prompted instead.
+- Run wz as a dedicated user or in a VM, an account that cannot reach what it must never touch. This matters most if
+  you set a mode in which Claude Code does not ask.
+- Web access is off for every role until `wz.toml` gives that role `web` (see "What the guard covers").
 - Claude Code asks "trust this folder?" the first time it starts in a new workspace or worktree. Answer it once by
   running `claude` there yourself, or the first job waits on that prompt.
+
+### Permission mode
+
+`[agent] permission_mode` in `wz.toml` is handed to `claude --permission-mode` for every `wz cli` session and every job.
+A missing line means `default`. wz refuses to load a `wz.toml` whose mode is not one Claude Code accepts
+(`default`, `plan`, `acceptEdits`, `auto`, `dontAsk`, `manual`, `bypassPermissions`), so a typo stops at the first
+command, not in the middle of a job. `wz init` writes `default` unless the answers name another mode, and the simple setup
+refuses `bypassPermissions`.
+
+Which of this README's sentences hold depends on the mode:
+
+| Mode | "Claude asks before it acts" | "A background job cannot ask permission" |
+|---|---|---|
+| `default` | Yes. | Yes: a job has nobody to answer, so it cannot do what needs a yes. |
+| `plan` | Yes (it only plans). | Yes: it edits and runs nothing. |
+| `acceptEdits` | Only for actions other than file edits. | Edits go through; other actions need a yes a job cannot get. |
+| `auto`, `dontAsk`, `manual` | wz has not checked where Claude Code asks in these modes. Do not rely on it. | Do not rely on it. |
+| `bypassPermissions` | No. | No: a job runs without stopping. |
+
+For every mode except `default` and `plan`, wz prints one line at each `wz cli` start (to the terminal, before the
+session opens) and at each job start. A job started by `wz serve` or the timers has no terminal, so its line lands in
+`.wz/logs/<job>.supervisor.log`; one run in the foreground prints it to that terminal. The job's record in `.wz/jobs/`
+also keeps the mode, and `wz status` shows the mode and what it means. Each role's `CHARTER.md`
+states the mode in use and what it means for that role, so the lead no longer repeats a sentence that is not true for
+the mode in force. START-HERE.md and the install prompt describe the setup as shipped, which is always `default`;
+they are not rewritten when you change the mode.
 
 ## Getting started (about 15 minutes)
 
@@ -319,12 +347,93 @@ Read this before you start a timer.
    wz install timers --dry-run
    wz install timers           # systemd user timers on Linux, launchd agents on macOS
    ```
+   **Without timers nothing starts a queued job.** `wz job add`, `wz queue` and `wz status` say so when no `wz serve`
+   has run in the last five minutes. To run a queue by hand, `wz serve --follow` stays in the foreground: it starts the
+   ready jobs, waits, starts what they unblocked, and stops when the queue is idle, then lists each job left waiting
+   and why (held, waiting for another job, over budget). Ctrl-C stops the following, not the jobs.
+   While a job runs, `wz status` and `wz queue` show when it last wrote output, and `wz job tail <id>` shows what the
+   agent last said or did.
 5. **Start the lead** and tell it what you want, in one sentence:
    ```sh
    wz cli mission-ctl
    ```
 6. **Watch it** with `wz status`, `wz queue` and `wz next`. Read `status/DIGEST-<date>.md` each morning. To sign
    from your phone, run `wz approve serve` and reach it over your own VPN or an SSH tunnel.
+
+## Sessions
+
+`wz cli <role>` opens a role's interactive session: one named Claude conversation per role, kept in a tmux session so it
+survives a closed window, a detach and a reboot. Without tmux it runs in your terminal and the conversation is still saved.
+
+| What | How |
+|---|---|
+| Open, or come back to, a role | `wz cli <role>` (the lead if you give no role), from any folder (see "Which workspace" below). Inside tmux it switches your client to it; outside it attaches. `Ctrl-b d` leaves it running. |
+| Start it without attaching | `wz cli <role> --detach` |
+| The conversation | The first start runs `claude --name wz-<project>-<role>`; every later start runs `claude --resume` with that name, from the same `CLAUDE_CONFIG_DIR` (recorded in `.wz/sessions/<role>.json`). `wz cli <role> --print` shows the command. |
+| A fresh conversation | `wz roll <role>` (the name becomes `wz-<project>-<role>-2`, then `-3`). The old conversation stays on disk. |
+| Stop a role | `wz park <role>` closes its tmux session and `wz start-all` leaves it alone; `wz cli <role>` brings it back, resuming. |
+| After a reboot | `wz start-all` starts, one at a time and detached, every role that had a session and is not parked, and waits for each to show Claude's input box. It never presses a key in a dialog: a login screen or a question is reported, and you open that role with `wz cli <role>`. Exit code 1 if any role is not at its input box. |
+| See them | `wz list`: each role's tmux session, conversation name and state. |
+| Apply a changed `wz.toml`, charter or account | A running session keeps the settings it started with, and `wz cli` says so. `wz cli <role> --restart` closes it and starts it again with the current ones, resuming the same conversation. |
+
+How it works. The tmux session is `wz-<project>-<role>` and runs a small script (`.wz/sessions/<role>.sh`) that sets `PATH`,
+`WZ_ROLE`, `WZ_CONFIG`, `WZ_HOME`, `WZ_SCRATCH` and `CLAUDE_CONFIG_DIR` itself, so those do not depend on the environment an
+already-running tmux server started with (anything else in that environment still reaches the role), and it needs no `tmux new-session -e` (tmux 3.2). When Claude exits the window
+becomes a shell, so the session never vanishes; `wz cli <role>` starts Claude again in it. Two workspaces with the same
+`[project] name` would share session names; wz refuses the second and tells you to rename the project.
+
+With tmux, closing the Terminal window leaves the role's Claude running in the background. In the safe setup Claude asks
+before it acts, so a left-over session waits quietly; `wz park <role>` (or `/exit` in its window) ends it. This is separate from
+`wz halt`, which stops a role's queued jobs. If Claude ended within 30 seconds of starting and no conversation by that name
+was saved (a login you abandoned, an immediate `/exit`), the next `wz cli <role>` creates it again instead of resuming nothing.
+
+Tested against tmux 3.0a, 3.1c, 3.4 (Linux) and 3.5a (macOS).
+
+### Which workspace (any folder)
+
+`wz init` records the workspace in a per-user list, `workspaces.json` in `$XDG_CONFIG_HOME/wz` (else `~/.config/wz`), and the
+first one is the default. A command that needs a workspace looks, in this order, at `$WZ_CONFIG` (inside a role's session),
+`--ws NAME`, a `wz.toml` in the current folder or above, then the default. So `wz cli mission-ctl`, `wz say`, `wz list`,
+`wz start-all`, `wz park` and `wz roll` work from any folder. Every command that falls back to the default workspace (no
+`wz.toml` here, no `--ws`) prints a line on stderr naming the workspace it is acting on, `wz job list` included. Setup mode starts
+only when no workspace is registered (or you run `wz init`). A workspace made before this list existed is added the first
+time you run `wz cli` inside it.
+
+A role's conversation always resumes from the role's own folder (Claude files conversations by folder), whichever folder you
+typed the command in.
+
+| What | How |
+|---|---|
+| List them | `wz workspaces` (`*` marks the default) |
+| Use another one for one command | `wz --ws NAME cli <role>` (or `--ws NAME` after the command) |
+| Change the default | `wz workspaces use NAME` |
+| Forget one (its files are untouched) | `wz workspaces forget NAME` |
+
+Two workspaces with one project name are named `name` and `name-2` in the list. `uninstall.sh` removes the list (never the workspace folders).
+
+## Talking to your roles
+
+`wz say <role> "<text>"` types a line into that role's live session and says it was sent only when Claude's input box has
+emptied again. The lead uses it to hand work to roles; any role can `wz say` the lead when it is blocked or needs a decision
+(a role may not message another role: it asks the lead in its report). The sender is shown to the receiver as `[from <role>]`.
+
+| What happened | What `wz say` prints, and the exit code |
+|---|---|
+| The box emptied | `said to <role> … its input box emptied`, 0 |
+| The role is in the middle of a turn and Claude queued the line | `queued, delivered when its turn ends`, 0 (Enter is not pressed again: that would queue a second copy) |
+| The line is still in the box after 4 Enters | `FAILED … still in <role>'s input box, unsent`, 1; the box is cleared again so it is not glued onto the next line |
+| The box disappeared after typing (a dialog opened) | `UNCONFIRMED`, 1; it is not noted, so it is never sent twice |
+| No live session: not started, parked, Claude ended (its window is a shell), a login screen, a question, a loading session | **nothing is typed** (a shell would run it as a command); the line is saved as a dated `> **Note …**` at the top of `roles/<role>/STATE.md`, which that role reads when it next starts, exit 0. **No job is queued**: `wz job add <role> "<task>"` is how work starts. |
+
+Newlines are folded into spaces (a newline would press Enter mid-line). Every `wz say` appends a line to `.wz/say.jsonl`
+(who, to whom, the outcome above, the text), which is how you check that the lead handed something over.
+
+**The lead delegates.** `mission-ctl`'s charter (the one `wz init` writes, and both setup charters) says it plans, writes
+briefs, and hands the work to the role that owns it, by `wz say` to a live session or `wz job add`; it reads their reports and
+does not do a role's work itself, even a small piece. To check this on a fresh simple setup, ask `mission-ctl` for one small
+thing; it should say which helper it gave it to, and `.wz/say.jsonl` (or `wz job list`) shows the hand-over. In the simple
+setup nothing runs by itself, so the lead opens the helper's window first (`wz cli <helper> --detach`) and says it there; the
+helper's questions wait for you in that window (`wz cli <helper>`).
 
 ## The rules, and the failure each prevents
 
@@ -347,6 +456,22 @@ instruction to the agent, and wz does not check it.
 | A job ends with a declared status and its evidence; nothing it started keeps running. | Work is left running that nobody reads, and "done" is assumed. | supervisor: no valid declaration means failed (after one corrective turn); process group swept at the end |
 | Agents never read or print secrets. | A token lands in a log or a transcript. | guard refuses secret paths, environment dumps and secret-named variables |
 | The lead names its own errors in the digest. | Mistakes are hidden and repeated. | the digest has the section; charter |
+
+**What the guard covers.** The guard sees these tool calls and nothing else:
+
+| Tool call | What it checks |
+|---|---|
+| `Edit`, `Write`, `MultiEdit`, `NotebookEdit` | the path is one the role owns or may always write; not a secret path |
+| `Bash` | redirects, `tee`, `cp`, `mv`, `rm`, `sed -i` targets; pattern kills; secret paths and environment dumps; `git commit/tag/push` without an unlock, force pushes, pushes to a protected branch; owner-only `wz` commands |
+| `Read`, `Grep`, `Glob`, `NotebookRead` | the path is not a secret |
+| `WebFetch`, `WebSearch`, and any `mcp__*` tool | the role has web access: `web = true`, or a list of tool names or globs, under `[roles.<name>]` in `wz.toml`. Off unless set. |
+
+Web access is a per-role switch the owner sets, for example `web = ["WebFetch"]` to let a librarian open the links it is
+given but not search, or `web = true` for every web and MCP tool. The guard checks the tool's name. It does not see what
+is fetched or where it goes, and it does not treat a `curl`, `wget` or `python3 -c` in a shell as web access: a role with
+`web` off can still reach the network from `Bash`. Any other tool (`TodoWrite`, `Task`, `Skill`, a tool Claude Code adds
+later) is let through unchecked. If the guard cannot read its config, it refuses a web or MCP call and a write, and lets
+other calls through.
 
 **What the guard does not do.** It is a seatbelt, not a sandbox. It parses shell commands with quotes and heredocs in
 mind: redirects, `tee`, `cp`, `mv`, `rm`, `sed -i` and git. A determined interpreter one-liner can still write
@@ -382,8 +507,8 @@ flowchart TD
 | Config | `wz.toml` | project, stores (git or folder), roles and their owned paths, rings, accounts, resources, budgets |
 | Charters | `wz charters` → `roles/<role>/CHARTER.md` | each role's instructions, built from the config, its pack and the rules |
 | Queue | `wz job`, `.wz/jobs/` | priority, dependency, timeout, leases, per-job commit unlock |
-| Serve | `wz serve` (timer, every minute) | claims ready jobs within each role's cap and the budget; one supervisor per job |
-| Guard | `wz hook guard` (PreToolUse) | ownership, pattern kills, secrets, unlocks, protected branches, owner-only commands |
+| Serve | `wz serve` (timer, every minute; `--follow` by hand) | claims ready jobs within each role's cap and the budget; one supervisor per job |
+| Guard | `wz hook guard` (PreToolUse) | ownership, pattern kills, secrets, unlocks, protected branches, owner-only commands, web and MCP tools |
 | Flags | `wz hook flag` (PostToolUse), `wz next`, `wz wait` | finished work announces itself through files |
 | Merge | `wz merge` (timer, every 5 minutes) | ownership backstop, merge, checks, then moves the integration branch |
 | Signs | `wz sign`, `wz approve serve` | requests anyone may make; signs only the owner gives |
@@ -443,7 +568,8 @@ office = ["drafts/**"]
 Packs: `lead`, `software`, `tester`, `firmware`, `hardware`, `bench`, `release`, `admin` and `auditor`. A role may override `desc`,
 `model`, `effort`, `account`, `cap` (concurrent jobs, default 1), `timeout` and `rules`. `[resources.<name>]` declares
 anything a job can lease (`kind`, `ids`, `max_hold`, `protected`, `pair_only_with`, `hazard`, `scpi`). `[bench]` holds
-`budget.<target>` (flash, ram) and `safety` (attended_only, limits). `[guard]` sets `secrets` (globs), `allow` (extra writable roots) and `temp` (whether the
+`budget.<target>` (flash, ram) and `safety` (attended_only, limits). A role may also set `web` (`true`, `false`, or a list of tool
+names such as `["WebFetch"]`; default `false`). `[agent]` sets `command`, `permission_mode` (default `"default"`), `pass_effort` and `default_model`. `[guard]` sets `secrets` (globs), `allow` (extra writable roots) and `temp` (whether the
 temp directory is writable). `[publish] deny` and `allow` hold leak-scan patterns.
 
 ## Tests
