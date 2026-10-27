@@ -35,6 +35,7 @@ EOF
 wz init --simple --answers "$HOME/answers.json" --dir "$HOME/wz-work" --no-git >/dev/null
 [ -d "$HOME/wz-work/files" ] && ok "the work folder was created" || bad "work folder missing"
 grep -q 'permission_mode = "default"' "$HOME/wz-work/wz.toml" && ok "permission_mode = default (Claude asks first)" || bad "permission mode"
+grep -q 'job_permission_mode = "auto"' "$HOME/wz-work/wz.toml" && ok "job_permission_mode = auto (background jobs can write)" || bad "job permission mode"
 grep -q 'daily_usd = 5' "$HOME/wz-work/wz.toml" && ok "daily cap written: $(grep -m1 daily_usd "$HOME/wz-work/wz.toml")" || bad "cap"
 ! grep -q bypassPermissions "$HOME/wz-work/wz.toml" && ok "no bypassPermissions anywhere in wz.toml" || bad "bypass found"
 if wz init --simple --answers <(sed 's/"budget_usd":5//;s/,$//' "$HOME/answers.json") --dir "$HOME/nocap" --no-git >/dev/null 2>&1; then

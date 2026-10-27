@@ -371,7 +371,7 @@ def build_command(cfg, role: str, prompt: str, resume: str | None = None) -> lis
     cmd = shlex.split(a["command"]) + [
         "-p", prompt, "--append-system-prompt-file", str(cfg.charter_path(role)),
         "--settings", str(cfg.role_settings), "--output-format", "stream-json", "--verbose",
-        "--permission-mode", a["permission_mode"],
+        "--permission-mode", a["job_permission_mode"],
     ]
     if r.get("model"):
         cmd += ["--model", r["model"]]
@@ -483,14 +483,14 @@ def run_job(cfg, job_id: str) -> dict:
         if job.get("unlock"):
             unlock.grant(cfg, job["role"], job=job_id, hours=job["timeout_s"] / 3600 + 1, by="job")
         job.update(supervisor_pid=os.getpid(), started=iso(), started_t=now(), cwd=str(cwd), branch=branch, base=base,
-                   worktree_path=str(wt) if wt else None, permission_mode=cfg.permission_mode())
+                   worktree_path=str(wt) if wt else None, permission_mode=cfg.job_permission_mode())
         jobs.save(cfg, job)
 
         def _record_pid(pid):
             job["agent_pid"] = pid
             jobs.save(cfg, job)
 
-        notice = cfg.mode_notice()
+        notice = cfg.mode_notice(job=True)
         if notice:
             print(f"{notice} (job {job_id}, role {job['role']})", file=sys.stderr)
         logs = cfg.state / "logs"

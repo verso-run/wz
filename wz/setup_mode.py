@@ -49,6 +49,7 @@ SIMPLE_EXAMPLE = {
     "accounts": {"main": {"config_dir": "", "daily_usd": 5}},
     "budget_usd": 5,
     "permission_mode": "default",
+    "job_permission_mode": "auto",
     "sign": "pin",
     "digest_time": "08:00",
 }
@@ -69,6 +70,7 @@ def _default_store(stores: dict, pack: str, role: str) -> str:
 
 
 PERMISSION_MODES = ("default", "acceptEdits", "plan", "bypassPermissions")
+JOB_MODES = ("default", "acceptEdits", "plan", "auto", "bypassPermissions")  # background jobs: `auto` is their default
 
 
 def answers_to_config(a: dict, simple: bool = False) -> dict:
@@ -78,9 +80,13 @@ def answers_to_config(a: dict, simple: bool = False) -> dict:
     mode = a.get("permission_mode") or config.DEFAULT_MODE
     if mode not in PERMISSION_MODES:
         raise SetupError(f"permission_mode must be one of {', '.join(PERMISSION_MODES)}")
+    job_mode = a.get("job_permission_mode") or config.DEFAULT_JOB_MODE
+    if job_mode not in JOB_MODES:
+        raise SetupError(f"job_permission_mode must be one of {', '.join(JOB_MODES)}")
     if simple:
-        if mode == "bypassPermissions":
-            raise SetupError("the simple setup keeps Claude Code asking before it acts; permission_mode cannot be bypassPermissions")
+        if mode == "bypassPermissions" or job_mode == "bypassPermissions":
+            raise SetupError("the simple setup never turns Claude Code's questions off: permission_mode and job_permission_mode "
+                             "cannot be bypassPermissions")
         if a.get("budget_usd") is None:
             raise SetupError("the simple setup needs a daily spend cap (budget_usd) chosen by the person")
     workflows = [w for w in a.get("workflows", ["software"]) if w in packs.WORKFLOWS] or ["software"]
@@ -108,7 +114,8 @@ def answers_to_config(a: dict, simple: bool = False) -> dict:
     data = {
         "project": {"name": name, "description": a.get("description", ""), "workflows": workflows,
                     "digest_time": a.get("digest_time", "08:00")},
-        "agent": {"command": a.get("agent_command", "claude"), "permission_mode": mode, "pass_effort": True},
+        "agent": {"command": a.get("agent_command", "claude"), "permission_mode": mode, "job_permission_mode": job_mode,
+                  "pass_effort": True},
         "owner": {"sign": a.get("sign", "pin")},
         "rings": {"order": ["dev", "prod"], "sign": ["prod"]},
         "watchdog": {"queued_hours": 6, "sign_hours": 24},

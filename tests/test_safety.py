@@ -22,6 +22,10 @@ def set_mode(cfg, mode):
     return with_toml(cfg, lambda d: d.setdefault("agent", {}).update(permission_mode=mode))
 
 
+def set_job_mode(cfg, mode):
+    return with_toml(cfg, lambda d: d.setdefault("agent", {}).update(job_permission_mode=mode))
+
+
 def drop_mode(cfg):
     return with_toml(cfg, lambda d: d.setdefault("agent", {}).pop("permission_mode", None))
 
@@ -31,8 +35,6 @@ def test_missing_mode_is_default_everywhere(project, capsys):
     cfg = drop_mode(project)
     assert "permission_mode" not in cfg.section("agent")
     assert cfg.agent()["permission_mode"] == "default" and cfg.mode_notice() is None
-    cmd = worker.build_command(cfg, "app", "do it")
-    assert cmd[cmd.index("--permission-mode") + 1] == "default"
     assert cli.main(["--config", str(cfg.path), "cli", "app", "--print"]) == 0
     assert "--permission-mode default" in capsys.readouterr().out
 
@@ -44,9 +46,13 @@ def test_no_agent_section_at_all_is_default(project):
 
 def test_bypass_only_when_written(project):
     cfg = set_mode(project, "bypassPermissions")
+    assert "does NOT ask" in cfg.mode_notice()
+    cmd = worker.build_command(cfg, "app", "do it")
+    assert cmd[cmd.index("--permission-mode") + 1] == "auto"  # jobs follow job_permission_mode, not this
+    cfg = set_job_mode(cfg, "bypassPermissions")
     cmd = worker.build_command(cfg, "app", "do it")
     assert cmd[cmd.index("--permission-mode") + 1] == "bypassPermissions"
-    assert "does NOT ask" in cfg.mode_notice()
+    assert "does NOT ask" in cfg.mode_notice(job=True)
 
 
 # ---- #1: validated on load, announced when it is not an ask-first mode -------------------------------------------------
@@ -90,10 +96,93 @@ def test_auto_is_announced_at_job_start_and_recorded(project, capsys):
 
 
 def test_default_job_is_silent_and_records_the_mode(project, capsys):
+    cfg = set_job_mode(project, "default")
+    j = jobs.add(cfg, "app", "add a greeting")
+    worker.serve(cfg, role="app", wait=True, say=lambda *_: None)
+    assert "permission mode" not in capsys.readouterr().err
+    assert jobs.get(cfg, j["id"])["permission_mode"] == "default"
+
+
+# ---- background jobs run in `auto` unless [agent] job_permission_mode says otherwise; `wz cli` keeps permission_mode ------
+def mode_of(cmd):
+    return cmd[cmd.index("--permission-mode") + 1]
+
+
+def test_job_mode_defaults_to_auto_and_chat_stays_default(project, capsys):
+    cfg = with_toml(drop_mode(project), lambda d: d["agent"].pop("job_permission_mode", None))
+    assert "job_permission_mode" not in cfg.section("agent")
+    assert cfg.job_permission_mode() == "auto" and cfg.permission_mode() == "default"
+    assert mode_of(worker.build_command(cfg, "app", "do it")) == "auto"
+    assert mode_of(worker.build_command(cfg, "app", "fix it", resume="abc")) == "auto"  # the fix turn is a job turn too
+    assert cli.main(["--config", str(cfg.path), "cli", "app", "--print"]) == 0
+    assert "--permission-mode default" in capsys.readouterr().out
+    cfg = with_toml(project, lambda d: d.pop("agent", None))
+    assert cfg.job_permission_mode() == "auto" and cfg.permission_mode() == "default"
+
+
+def test_job_mode_set_in_wz_toml_reaches_the_job_and_not_the_window(project, capsys):
+    cfg = set_job_mode(project, "acceptEdits")
+    assert mode_of(worker.build_command(cfg, "app", "do it")) == "acceptEdits"
+    assert cli.main(["--config", str(cfg.path), "cli", "app", "--print"]) == 0
+    out = capsys.readouterr()
+    assert "--permission-mode default" in out.out and out.err == ""
+    cfg = set_mode(cfg, "plan")
+    assert mode_of(worker.build_command(cfg, "app", "do it")) == "acceptEdits"
+
+
+@pytest.mark.parametrize("bad", ["yolo", "Auto", "", 3, ["auto"], True])
+def test_unknown_job_mode_is_refused_on_load(project, bad):
+    with pytest.raises(config.ConfigError, match="job_permission_mode .* is not a mode wz supports"):
+        set_job_mode(project, bad)
+
+
+def test_the_default_job_mode_is_announced_at_job_start_and_recorded(project, capsys):
     j = jobs.add(project, "app", "add a greeting")
     worker.serve(project, role="app", wait=True, say=lambda *_: None)
-    assert "permission mode" not in capsys.readouterr().err
-    assert jobs.get(project, j["id"])["permission_mode"] == "default"
+    err = capsys.readouterr().err
+    assert "job permission mode is 'auto'" in err and "job_permission_mode" in err and j["id"] in err and "role app" in err
+    assert "do not count on being asked" in err and "cannot write" in err
+    assert jobs.get(project, j["id"])["permission_mode"] == "auto"
+
+
+def test_a_window_is_not_announced_when_only_the_job_mode_is_unsafe(project, capsys):
+    assert project.mode_notice() is None and "job permission mode is 'auto'" in project.mode_notice(job=True)
+    assert cli.main(["--config", str(project.path), "cli", "app", "--print"]) == 0
+    assert capsys.readouterr().err == ""
+    cfg = set_mode(project, "auto")
+    assert "job" not in cfg.mode_notice()
+
+
+def test_status_shows_both_modes(project, capsys):
+    assert cli.main(["--config", str(project.path), "status"]) == 0
+    out = capsys.readouterr().out
+    assert "permission mode: default\n" in out and "job permission mode: auto  (" in out
+    cfg = set_job_mode(project, "default")
+    assert cli.main(["--config", str(cfg.path), "status"]) == 0
+    assert "job permission mode: default\n" in capsys.readouterr().out
+
+
+def test_job_charter_text_follows_the_job_mode(project):
+    def charter(mode):
+        cfg = set_job_mode(project, mode)
+        charters.write_all(cfg)
+        return cfg.charter_path("app").read_text()
+    c = charter("auto")
+    assert "Background job mode: `auto`" in c and "a job can usually write files" in c and "cannot do anything that needs a yes" not in c
+    assert "Permission mode: `default`" in c and "asks the owner before it acts" in c
+    c = charter("default")
+    assert "Background job mode: `default`" in c and "cannot do anything that needs a yes" in c
+    assert "Background job mode: `acceptEdits`" in charter("acceptEdits")
+    assert "does NOT ask" in charter("bypassPermissions")
+    for m in config.SAFE_MODES + config.OTHER_MODES:
+        assert charters.JOB_MODE_TEXT.get(m) or charters.MODE_TEXT[m]
+
+
+def test_a_hand_edit_of_the_job_mode_makes_the_charter_stale(project):
+    charters.write_all(project)
+    assert not charters.stale(project, "app")
+    cfg = set_job_mode(project, "default")
+    assert charters.stale(cfg, "app")
 
 
 def test_status_shows_the_mode(project, capsys):
@@ -118,11 +207,11 @@ def test_charter_claims_follow_the_mode(project):
         charters.write_all(cfg)
         return cfg.charter_path("app").read_text()
     c = charter("default")
-    assert "Permission mode: `default`" in c and "asks the owner before it acts" in c and "cannot do anything that needs a yes" in c
+    assert "Permission mode: `default`" in c and "asks the owner before it acts" in c
     for mode in ("auto", "dontAsk", "manual", "bypassPermissions"):
         c = charter(mode)
         assert f"Permission mode: `{mode}`" in c
-        assert "asks the owner before it acts" not in c and "cannot do anything that needs a yes" not in c
+        assert "asks the owner before it acts" not in c
     assert "does NOT ask" in charter("bypassPermissions")
     assert "Do not assume you will be stopped" in charter("auto")
     c = charter("acceptEdits")

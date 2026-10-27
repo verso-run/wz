@@ -74,12 +74,10 @@ def _owns_text(r: dict) -> str:
 
 
 MODE_TEXT = {
-    "default": "Claude Code asks the owner before it acts on anything the owner has not already allowed (reading is not asked about). A background job has nobody to answer, so a job cannot do "
-               "anything that needs a yes; an interactive session can ask. If a job needs something it cannot get, say "
-               "so in your report and stop.",
+    "default": "Claude Code asks the owner before it acts on anything the owner has not already allowed (reading is not "
+               "asked about), and the owner is at the keyboard to answer.",
     "plan": "Claude Code only plans: it does not edit files or run commands. Say in your report what you would have done.",
-    "acceptEdits": "Claude Code accepts file edits without asking. It still asks before other actions, and a background "
-                   "job cannot be asked: it cannot do anything that needs a yes beyond file edits.",
+    "acceptEdits": "Claude Code accepts file edits without asking. It still asks before other actions.",
     "auto": "Claude Code decides for itself what to ask about; it does not ask before every action, and wz has not "
             "checked where it asks. Do not assume you will be stopped: the guard and the owner's review are the limits.",
     "dontAsk": "Claude Code does not ask. wz has not checked what it then allows. Do not assume you will be stopped: the "
@@ -90,9 +88,23 @@ MODE_TEXT = {
 }
 
 
+# What each mode means for a background job, which has nobody to answer a question. Modes not listed here read as in MODE_TEXT.
+JOB_MODE_TEXT = {
+    "default": "A background job has nobody to answer, so a job cannot do anything that needs a yes, which includes writing a "
+               "file. If a job needs something it cannot get, say so in your report and stop.",
+    "plan": "A job only plans: it does not edit files or run commands. Say in your report what you would have done.",
+    "acceptEdits": "A job's file edits go through without asking. Anything else that needs a yes it cannot get: if you need "
+                   "one, say so in your report and stop.",
+    "auto": "Claude Code decides for itself what to stop and ask about, so a job can usually write files and run commands "
+            "with no one there. wz has not checked where it still stops, and a job cannot be asked: if it stops, say so "
+            "in your report. Do not assume you will be stopped; the guard and the owner's review are the limits.",
+}
+
+
 def mode_note(cfg) -> str:
-    mode = cfg.permission_mode()
-    return f"**Permission mode: `{mode}`** (`[agent] permission_mode` in wz.toml). " + MODE_TEXT.get(mode, "")
+    mode, job = cfg.permission_mode(), cfg.job_permission_mode()
+    chat = f"**Permission mode: `{mode}`** (`[agent] permission_mode` in wz.toml, for `wz cli` sessions). " + MODE_TEXT.get(mode, "")
+    return chat + f"\n\n**Background job mode: `{job}`** (`[agent] job_permission_mode`, for jobs). " + (JOB_MODE_TEXT.get(job) or MODE_TEXT.get(job, ""))
 
 
 def web_note(cfg, role: str) -> str:

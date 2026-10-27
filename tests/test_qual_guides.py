@@ -541,7 +541,7 @@ def _setup(tmp_path):
 
 def test_answers_start_safe(tmp_path):
     cfg, answers = _setup(tmp_path)
-    assert cfg.agent()["permission_mode"] == "default"
+    assert cfg.agent()["permission_mode"] == "default" and cfg.agent()["job_permission_mode"] == "auto"
     assert answers["budget_usd"] <= 5 and answers["accounts"]["main"]["daily_usd"] <= 5
     assert "bypassPermissions" not in (EX / "answers.json").read_text()
     assert set(cfg.roles()) == {"mission-ctl", "librarian", "guide-writer", "reviewer", "designer"}
@@ -723,7 +723,8 @@ def test_the_lead_charter_proposes_a_helper_instead_of_doing_unowned_work(tmp_pa
 
 def test_the_lead_charter_reads_the_mode_and_runs_the_chain_with_holds_and_serve(tmp_path):
     c = _lead_charter(tmp_path)
-    assert "read `permission_mode` in wz.toml yourself" in c and "You may not edit wz.toml" in c
+    assert "read `job_permission_mode` in wz.toml yourself" in c and "You may not edit wz.toml" in c
+    assert "acceptEdits" not in c and "`job_permission_mode = \"default\"`" in c
     assert "`wz job hold <id> --why" in c and "run `wz serve` again after each job ends" in c
     assert "no timers" in c
 

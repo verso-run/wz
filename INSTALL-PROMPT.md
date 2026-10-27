@@ -16,7 +16,7 @@ Do these steps in order, telling me in one or two plain sentences what each is a
 Step 1. Fetch the installer, pinned to the release v0.1.1, and check it has not been changed:
   mkdir -p "$HOME/.cache/wz-install" && curl -fsSL https://raw.githubusercontent.com/verso-run/wz/v0.1.1/install.sh -o "$HOME/.cache/wz-install/install.sh"
 Then compute its SHA-256 (`shasum -a 256` on a Mac, `sha256sum` on Linux). It must be exactly
-  827e44b2d3842e135d5f4fe325b65b7baa3e77874d9a9d53f4b3aed46b78c970
+  40f19cafefa9d6a9eea4bdaf33f4ce43e85b43c9a1723f13463ac78d3c2d0711
 If it is not exactly that, stop, tell me the installer does not match, and do not run it.
 
 Step 2. Look at this computer: run `sh "$HOME/.cache/wz-install/install.sh" check`. Tell me in plain words what it found (Mac or Linux, what is already installed). If it stops with a message, tell me that message in your own plain words and stop there.
@@ -27,7 +27,7 @@ Step 4. After my yes, run `sh "$HOME/.cache/wz-install/install.sh" --yes uv wz c
 
 Step 5. One more change needs its own yes: so that `wz` works in new Terminal windows, the installer may add three marked lines to my shell settings file. Ask me. Only after a yes, run `sh "$HOME/.cache/wz-install/install.sh" --yes path`. If I say no, tell me the line to type instead: export PATH="$HOME/.local/bin:$PATH"
 
-Step 6. Before the setup questions, say to me out loud, in plain words, what wz starts with: Claude Code keeps asking before it acts; nothing runs by itself, with no timers until I ask for them; and I choose a daily spending limit in the next step.
+Step 6. Before the setup questions, say to me out loud, in plain words, what wz starts with: Claude Code keeps asking before it acts in the windows I open; work I later put on a helper's list runs in the background in Claude Code's auto mode, where it can write files without asking, inside wz's guard; nothing runs by itself, with no timers until I ask for them; and I choose a daily spending limit in the next step.
 
 Step 7. Open the setup conversation. First look for `$HOME/wz-work/wz.toml`. If it already exists, wz was set up before: tell me so, show me the daily limit it holds, and ask whether I want to start the setup over; if I do not, skip to Step 8 and change nothing. Otherwise run `wz init --simple --print-charter --dir "$HOME/wz-work"`. It prints the path of a file with your instructions for the setup conversation. Read that file and follow it exactly from now on: it asks me a few short questions, one at a time, including the daily limit (suggest a low one, such as 5 dollars). Do not skip its questions and do not answer them for me.
 

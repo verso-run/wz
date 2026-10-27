@@ -160,9 +160,24 @@ def test_full_setup_without_a_mode_is_the_safe_default(tmp_path):
     assert cfg.agent()["permission_mode"] == "bypassPermissions"
 
 
+def test_setup_writes_the_job_mode_and_the_simple_one_refuses_bypass(tmp_path):
+    cfg = setup_mode.apply(setup_mode.SIMPLE_EXAMPLE, tmp_path / "a", git_init=False, simple=True)
+    assert cfg.agent()["permission_mode"] == "default" and cfg.agent()["job_permission_mode"] == "auto"
+    assert 'job_permission_mode = "auto"' in cfg.path.read_text()
+    dropped = {k: v for k, v in setup_mode.SIMPLE_EXAMPLE.items() if k != "job_permission_mode"}
+    assert setup_mode.apply(dropped, tmp_path / "b", git_init=False, simple=True).agent()["job_permission_mode"] == "auto"
+    cfg = setup_mode.apply({**setup_mode.SIMPLE_EXAMPLE, "job_permission_mode": "default"}, tmp_path / "c", git_init=False, simple=True)
+    assert cfg.agent()["job_permission_mode"] == "default"
+    with pytest.raises(setup_mode.SetupError, match="job_permission_mode"):
+        setup_mode.apply({**setup_mode.SIMPLE_EXAMPLE, "job_permission_mode": "bypassPermissions"}, tmp_path / "d",
+                         git_init=False, simple=True)
+    with pytest.raises(setup_mode.SetupError, match="job_permission_mode must be"):
+        setup_mode.apply({**setup_mode.SIMPLE_EXAMPLE, "job_permission_mode": "yolo"}, tmp_path / "e", git_init=False)
+
+
 def test_simple_charter_is_plain_and_has_no_timers(tmp_path):
     text = setup_mode.setup_charter(tmp_path, simple=True)
-    assert '"permission_mode": "default"' in text and "{example}" not in text and "{dir}" not in text
+    assert '"permission_mode": "default"' in text and '"job_permission_mode": "auto"' in text and "{example}" not in text and "{dir}" not in text
     assert "Suggest $5" in text and "Do not install timers" in text
     p = setup_mode.write_setup_charter(tmp_path / "w", simple=True)
     assert p.read_text().startswith("# wz simple setup")

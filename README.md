@@ -216,7 +216,7 @@ Do these steps in order, telling me in one or two plain sentences what each is a
 Step 1. Fetch the installer, pinned to the release v0.1.1, and check it has not been changed:
   mkdir -p "$HOME/.cache/wz-install" && curl -fsSL https://raw.githubusercontent.com/verso-run/wz/v0.1.1/install.sh -o "$HOME/.cache/wz-install/install.sh"
 Then compute its SHA-256 (`shasum -a 256` on a Mac, `sha256sum` on Linux). It must be exactly
-  827e44b2d3842e135d5f4fe325b65b7baa3e77874d9a9d53f4b3aed46b78c970
+  40f19cafefa9d6a9eea4bdaf33f4ce43e85b43c9a1723f13463ac78d3c2d0711
 If it is not exactly that, stop, tell me the installer does not match, and do not run it.
 
 Step 2. Look at this computer: run `sh "$HOME/.cache/wz-install/install.sh" check`. Tell me in plain words what it found (Mac or Linux, what is already installed). If it stops with a message, tell me that message in your own plain words and stop there.
@@ -227,7 +227,7 @@ Step 4. After my yes, run `sh "$HOME/.cache/wz-install/install.sh" --yes uv wz c
 
 Step 5. One more change needs its own yes: so that `wz` works in new Terminal windows, the installer may add three marked lines to my shell settings file. Ask me. Only after a yes, run `sh "$HOME/.cache/wz-install/install.sh" --yes path`. If I say no, tell me the line to type instead: export PATH="$HOME/.local/bin:$PATH"
 
-Step 6. Before the setup questions, say to me out loud, in plain words, what wz starts with: Claude Code keeps asking before it acts; nothing runs by itself, with no timers until I ask for them; and I choose a daily spending limit in the next step.
+Step 6. Before the setup questions, say to me out loud, in plain words, what wz starts with: Claude Code keeps asking before it acts in the windows I open; work I later put on a helper's list runs in the background in Claude Code's auto mode, where it can write files without asking, inside wz's guard; nothing runs by itself, with no timers until I ask for them; and I choose a daily spending limit in the next step.
 
 Step 7. Open the setup conversation. First look for `$HOME/wz-work/wz.toml`. If it already exists, wz was set up before: tell me so, show me the daily limit it holds, and ask whether I want to start the setup over; if I do not, skip to Step 8 and change nothing. Otherwise run `wz init --simple --print-charter --dir "$HOME/wz-work"`. It prints the path of a file with your instructions for the setup conversation. Read that file and follow it exactly from now on: it asks me a few short questions, one at a time, including the daily limit (suggest a low one, such as 5 dollars). Do not skip its questions and do not answer them for me.
 
@@ -286,9 +286,12 @@ You also need Claude Code installed and logged in (`claude` on your PATH). git i
 
 Read this before you start a timer.
 
-- wz passes `[agent] permission_mode` to Claude Code unchanged, and the default is `default`: Claude Code asks before it
-  edits or runs anything you have not already allowed. Any other mode has to be written in `wz.toml`, and wz says so at every `wz cli` and job start (see
-  "Permission mode" below). The guard is a seatbelt, not a sandbox (see "What the guard does not do" below).
+- wz passes the permission mode to Claude Code unchanged, and the two kinds of run have different defaults. A `wz cli`
+  window uses `[agent] permission_mode`, default `default`: Claude Code asks before it edits or runs anything you have not
+  already allowed, and you are there to answer. A background job (`wz job add` then `wz serve`, a timer, or `--follow`)
+  uses `[agent] job_permission_mode`, default `auto`: nobody is there to answer, so Claude Code decides for itself what to
+  stop at and the job can write files without asking. wz has not checked where `auto` still stops, and says so at every
+  job start (see "Permission mode" below). The guard is a seatbelt, not a sandbox (see "What the guard does not do" below).
 - Timers spend unattended, up to `[budget] daily_usd` per day. A job that is already running can pass that figure.
 - Run wz as a dedicated user or in a VM, an account that cannot reach what it must never touch. This matters most if
   you set a mode in which Claude Code does not ask.
@@ -298,13 +301,23 @@ Read this before you start a timer.
 
 ### Permission mode
 
-`[agent] permission_mode` in `wz.toml` is handed to `claude --permission-mode` for every `wz cli` session and every job.
-A missing line means `default`. wz refuses to load a `wz.toml` whose mode is not one Claude Code accepts
-(`default`, `plan`, `acceptEdits`, `auto`, `dontAsk`, `manual`, `bypassPermissions`), so a typo stops at the first
-command, not in the middle of a job. `wz init` writes `default` unless the answers name another mode, and the simple setup
-refuses `bypassPermissions`.
+`wz.toml` has two settings, both handed to `claude --permission-mode`:
 
-Which of this README's sentences hold depends on the mode:
+- `[agent] permission_mode` for every `wz cli` session. A missing line means `default`.
+- `[agent] job_permission_mode` for every background job (and its fix turn). A missing line means `auto`. A job has
+  nobody to answer a question, so under `default` it cannot write a file; `auto` lets Claude Code decide what to stop at
+  instead, and is what lets a queued job run to the end. Set `job_permission_mode = "default"` if you want jobs that stop
+  at anything needing a yes (they then cannot write), or `acceptEdits` for edits only.
+
+wz refuses to load a `wz.toml` whose mode is not one Claude Code accepts (`default`, `plan`, `acceptEdits`, `auto`,
+`dontAsk`, `manual`, `bypassPermissions`), so a typo stops at the first command, not in the middle of a job. `wz init`
+writes `default` and `auto` unless the answers name other modes, and the simple setup refuses `bypassPermissions` for
+either. `auto` is Claude Code's own mode: whether your plan or Claude Code
+version offers it is Claude Code's rule, not wz's. If a job cannot start in it, set `job_permission_mode` to `acceptEdits`
+or `default` and read the table below.
+
+Which of this README's sentences hold depends on the mode (read the second column for `permission_mode` and the third for
+`job_permission_mode`):
 
 | Mode | "Claude asks before it acts" | "A background job cannot ask permission" |
 |---|---|---|
@@ -315,12 +328,13 @@ Which of this README's sentences hold depends on the mode:
 | `bypassPermissions` | No. | No: a job runs without stopping. |
 
 For every mode except `default` and `plan`, wz prints one line at each `wz cli` start (to the terminal, before the
-session opens) and at each job start. A job started by `wz serve` or the timers has no terminal, so its line lands in
+session opens) and at each job start, naming the setting that chose it. With the defaults that is a job line at every job
+start and no line at `wz cli`. A job started by `wz serve` or the timers has no terminal, so its line lands in
 `.wz/logs/<job>.supervisor.log`; one run in the foreground prints it to that terminal. The job's record in `.wz/jobs/`
-also keeps the mode, and `wz status` shows the mode and what it means. Each role's `CHARTER.md`
+also keeps the mode the job ran in, and `wz status` shows both modes and what each means. Each role's `CHARTER.md`
 states the mode in use and what it means for that role, so the lead no longer repeats a sentence that is not true for
-the mode in force. START-HERE.md and the install prompt describe the setup as shipped, which is always `default`;
-they are not rewritten when you change the mode.
+the mode in force. START-HERE.md and the install prompt describe the setup as shipped (`default` for windows, `auto`
+for jobs); they are not rewritten when you change a mode.
 
 ## Getting started (about 15 minutes)
 
@@ -609,7 +623,7 @@ Packs: `lead`, `software`, `tester`, `firmware`, `hardware`, `bench`, `release`,
 `model`, `effort`, `account`, `cap` (concurrent jobs, default 1), `timeout` and `rules`. `[resources.<name>]` declares
 anything a job can lease (`kind`, `ids`, `max_hold`, `protected`, `pair_only_with`, `hazard`, `scpi`). `[bench]` holds
 `budget.<target>` (flash, ram) and `safety` (attended_only, limits). A role may also set `web` (`true`, `false`, or a list of tool
-names such as `["WebFetch"]`; default `false`). `[agent]` sets `command`, `permission_mode` (default `"default"`), `pass_effort` and `default_model`. `[guard]` sets `secrets` (globs), `allow` (extra writable roots) and `temp` (whether the
+names such as `["WebFetch"]`; default `false`). `[agent]` sets `command`, `permission_mode` (default `"default"`, for `wz cli`), `job_permission_mode` (default `"auto"`, for background jobs), `pass_effort` and `default_model`. `[guard]` sets `secrets` (globs), `allow` (extra writable roots) and `temp` (whether the
 temp directory is writable). `[publish] deny` and `allow` hold leak-scan patterns.
 
 ## Tests
