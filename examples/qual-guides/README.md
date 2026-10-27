@@ -73,7 +73,7 @@ Step 4. Ask me what the most I want the helpers to spend in one day is. Say hone
   wz init --simple --answers answers.json --dir .
 It refuses to go on if the limit is missing or Claude Code is set to skip questions. If it refuses, tell me why in plain words and stop.
 
-Step 5. Tell me, in plain words and short: the folder is $HOME/wz-work/qual-guides; the finished sample guide is projects/car-scent-study/guide.md and its review is review.md; to use the helpers I open a Terminal, type `cd ~/wz-work/qual-guides`, then `wz cli librarian`, `wz cli mission-ctl`, `wz cli guide-writer`, `wz cli reviewer` or `wz cli designer`; nothing runs unless a window with Claude is open in front of me; and how to stop everything (type /exit in each window; if tmux kept a helper waiting, `wz park` and its name). Then ask whether I would like to read the sample guide together first.
+Step 5. Tell me, in plain words and short: the folder is $HOME/wz-work/qual-guides; the finished sample guide is projects/car-scent-study/guide.md and its review is review.md; to use the helpers I open a Terminal, type `cd ~/wz-work/qual-guides`, then `wz cli librarian`, `wz cli mission-ctl`, `wz cli guide-writer`, `wz cli reviewer` or `wz cli designer`; nothing runs unless a window with Claude is open in front of me; and how to stop everything (type /exit in each Claude window, or run `wz park` and the helper's name; if I only close the Terminal, a helper stays open in the background, waiting for me). Then ask whether I would like to read the sample guide together first.
 ```
 <!-- /EXAMPLE-PROMPT -->
 
