@@ -270,6 +270,78 @@ def test_new_project_copies_the_template_but_not_the_layouts(tmp_path):
             qg.new_project(tmp_path, bad)
 
 
+# ---- the checker's write modes belong to one role each, and its folder is its own ----------------------------------------
+@pytest.fixture()
+def qg_ws(tmp_path, monkeypatch):
+    """A scratch qual-guides folder that the checker takes to be its own."""
+    (tmp_path / "sources").mkdir()
+    (tmp_path / "sources" / "links.md").write_text("see https://example.org/a\n")
+    __import__("shutil").copytree(EX / "projects" / "_template", tmp_path / "projects" / "_template")
+    monkeypatch.setattr(qg, "ROOT", tmp_path)
+    monkeypatch.delenv("WZ_ROLE", raising=False)
+    return tmp_path
+
+
+INDEX = Path("methods-base") / "sources-index.json"
+
+
+@pytest.mark.parametrize("role", [None, "reviewer", "mission-ctl", "guide-writer", "designer", "Librarian"])
+def test_sources_update_refuses_every_role_but_the_librarian(qg_ws, monkeypatch, capsys, role):
+    if role:
+        monkeypatch.setenv("WZ_ROLE", role)
+    assert qg.main(["sources", "--update"]) == 1
+    assert "librarian" in capsys.readouterr().out
+    assert not (qg_ws / INDEX).exists()
+    assert qg.main(["sources"]) == 0                                    # reading is open to everyone
+
+
+def test_sources_update_runs_for_the_librarian_and_reading_never_writes(qg_ws, monkeypatch):
+    monkeypatch.setenv("WZ_ROLE", "librarian")
+    assert qg.main(["sources"]) == 0 and not (qg_ws / INDEX).exists()
+    assert qg.main(["sources", "--update"]) == 0 and (qg_ws / INDEX).is_file()
+
+
+def test_new_project_is_the_leads_alone(qg_ws, monkeypatch, capsys):
+    for role in (None, "librarian", "reviewer"):
+        if role:
+            monkeypatch.setenv("WZ_ROLE", role)
+        assert qg.main(["new-project", "corner-shop"]) == 1
+        assert "mission-ctl" in capsys.readouterr().out
+        assert not (qg_ws / "projects" / "corner-shop").exists()
+    monkeypatch.setenv("WZ_ROLE", "mission-ctl")
+    assert qg.main(["new-project", "corner-shop"]) == 0 and (qg_ws / "projects" / "corner-shop" / "brief.md").is_file()
+
+
+def test_root_outside_the_workspace_is_refused_whatever_the_role(qg_ws, tmp_path_factory, monkeypatch, capsys):
+    other = tmp_path_factory.mktemp("elsewhere")
+    (other / "sources").mkdir()
+    (other / "sources" / "a.md").write_text("x")
+    for role, argv in (("librarian", ["sources", "--update"]), ("librarian", ["sources"]), ("mission-ctl", ["new-project", "zz"])):
+        monkeypatch.setenv("WZ_ROLE", role)
+        assert qg.main(["--root", str(other), *argv]) == 1
+        assert "outside this workspace" in capsys.readouterr().out
+    assert not (other / INDEX).exists() and not (other / "projects").exists()
+    # a path that climbs back out, and a link that points out, are the same folder
+    monkeypatch.setenv("WZ_ROLE", "librarian")
+    assert qg.main(["--root", str(qg_ws / ".." / other.name), "sources", "--update"]) == 1
+    (qg_ws / "link").symlink_to(other)
+    assert qg.main(["--root", str(qg_ws / "link"), "sources", "--update"]) == 1
+    assert not (other / INDEX).exists()
+    # inside the workspace is fine
+    (qg_ws / "sub").mkdir()
+    assert qg.main(["--root", str(qg_ws / "sub"), "sources"]) == 0
+    assert qg.main(["--root", str(qg_ws), "sources", "--update"]) == 0
+
+
+def test_the_librarians_rule_and_the_readme_name_the_write_modes():
+    ans = json.loads((EX / "answers.json").read_text())
+    assert "python3 tools/qg.py sources --update" in " ".join(ans["roles"]["librarian"]["rules"])
+    assert "python3 tools/qg.py new-project" in " ".join(ans["roles"]["mission-ctl"]["rules"])
+    assert qg.WRITERS == {"new-project": "mission-ctl", "sources --update": "librarian"}
+    readme = (EX / "README.md").read_text()
+    assert "only the librarian may run it" in readme and "only the coordinator, `mission-ctl`, may run it" in readme
+
+
 # ---- quotes, against a local server --------------------------------------------------------------------------------
 @pytest.fixture()
 def page_server(tmp_path):

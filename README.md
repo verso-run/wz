@@ -231,7 +231,7 @@ Step 6. Before the setup questions, say to me out loud, in plain words, what wz 
 
 Step 7. Open the setup conversation. First look for `$HOME/wz-work/wz.toml`. If it already exists, wz was set up before: tell me so, show me the daily limit it holds, and ask whether I want to start the setup over; if I do not, skip to Step 8 and change nothing. Otherwise run `wz init --simple --print-charter --dir "$HOME/wz-work"`. It prints the path of a file with your instructions for the setup conversation. Read that file and follow it exactly from now on: it asks me a few short questions, one at a time, including the daily limit (suggest a low one, such as 5 dollars). Do not skip its questions and do not answer them for me.
 
-Step 8. When the setup is written, tell me in three or four lines: where my files are, how to talk to wz again, how to stop everything (close the window; nothing runs by itself), and how to uninstall. Then ask what I would like done first.
+Step 8. When the setup is written, tell me in three or four lines: where my files are, how to talk to wz again, how to stop everything (type /exit in each Claude window, or run `wz park <helper>`; if you only close the Terminal, a helper stays open in the background, waiting for you; nothing starts work by itself), and how to uninstall. Then ask what I would like done first.
 ```
 <!-- /PROMPT -->
 
@@ -246,7 +246,8 @@ Step 8. When the setup is written, tell me in three or four lines: where my file
   for; what kind of work (paperwork and writing is the default); which folder; **your daily limit** (take your own number;
   5 dollars is suggested); and what time you want a short summary file each morning (08:00). Nothing is sent anywhere.
 - It ends by telling you where your files are, how to talk to wz again (`cd` into the folder, then `wz cli mission-ctl`),
-  how to stop everything (close the window; nothing runs by itself, because no timers are installed), and how to
+  how to stop everything (type `/exit` in each Claude window, or run `wz park <helper>`; closing only the Terminal leaves a
+  helper open in the background, waiting for you, and no timers are installed, so nothing starts work by itself), and how to
   uninstall.
 
 Pasting the prompt twice is safe: it checks what is already there. The same steps, with the Terminal one-liner and the
@@ -286,7 +287,7 @@ You also need Claude Code installed and logged in (`claude` on your PATH). git i
 Read this before you start a timer.
 
 - wz passes `[agent] permission_mode` to Claude Code unchanged, and the default is `default`: Claude Code asks before it
-  acts. Any other mode has to be written in `wz.toml`, and wz says so at every `wz cli` and job start (see
+  edits or runs anything you have not already allowed. Any other mode has to be written in `wz.toml`, and wz says so at every `wz cli` and job start (see
   "Permission mode" below). The guard is a seatbelt, not a sandbox (see "What the guard does not do" below).
 - Timers spend unattended, up to `[budget] daily_usd` per day. A job that is already running can pass that figure.
 - Run wz as a dedicated user or in a VM, an account that cannot reach what it must never touch. This matters most if
@@ -352,7 +353,8 @@ they are not rewritten when you change the mode.
    ready jobs, waits, starts what they unblocked, and stops when the queue is idle, then lists each job left waiting
    and why (held, waiting for another job, over budget). Ctrl-C stops the following, not the jobs.
    While a job runs, `wz status` and `wz queue` show when it last wrote output, and `wz job tail <id>` shows what the
-   agent last said or did.
+   agent last said or did. Each job's whole transcript (every file it read, every command's output) is kept in
+   `.wz/logs/<job>.out`; nothing deletes these, so clear old ones from time to time.
 5. **Start the lead** and tell it what you want, in one sentence:
    ```sh
    wz cli mission-ctl
@@ -383,7 +385,7 @@ becomes a shell, so the session never vanishes; `wz cli <role>` starts Claude ag
 `[project] name` would share session names; wz refuses the second and tells you to rename the project.
 
 With tmux, closing the Terminal window leaves the role's Claude running in the background. In the safe setup Claude asks
-before it acts, so a left-over session waits quietly; `wz park <role>` (or `/exit` in its window) ends it. This is separate from
+before it acts, so a left-over session waits quietly (one closed in the middle of a turn finishes that step first, then waits at the next question); `wz park <role>` (or `/exit` in its window) ends it. This is separate from
 `wz halt`, which stops a role's queued jobs. If Claude ended within 30 seconds of starting and no conversation by that name
 was saved (a login you abandoned, an immediate `/exit`), the next `wz cli <role>` creates it again instead of resuming nothing.
 
