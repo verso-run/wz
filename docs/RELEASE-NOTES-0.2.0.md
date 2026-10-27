@@ -47,3 +47,14 @@ none.
 - Every tmux call goes through one file, `wz/mux.py`, which also counts them, so a test can prove that a hook started none.
 - The hub, the colours and `wz doctor` were run against tmux 3.4 (Linux) and 3.5a. 3.0 is the oldest `wz doctor` accepts; 3.0a
   and 3.1c have not been run for this release.
+- The install pages, `install.sh` and the README now all pin `v0.2.0` and carry the sealed checksum of `install.sh`.
+
+## What is later
+
+These are not in 0.2.0:
+
+- **A picker for the hub.** There is no full-screen list to choose tabs from; `wz hub show HELPER` and `wz hub hide HELPER`
+  choose them.
+- **Tab completion.** `wz` does not yet complete helper names or commands in bash or zsh.
+- **Native Windows.** wz needs tmux, so it runs on macOS, Linux and, on Windows, inside WSL (a Linux inside Windows). Install
+  WSL, open it, and follow the same steps there. Running without WSL is for a later release.
