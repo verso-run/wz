@@ -108,19 +108,27 @@ def test_the_same_state_twice_is_zero_tmux_calls(rig, cfg, monkeypatch):
     assert light.set_light("ask", env) == 0 and mux.calls() == []
 
 
+def _best_ms(argv, env, n=15):
+    best = 1e9
+    for _ in range(n):
+        t0 = time.perf_counter()
+        subprocess.run(argv, env=env, stdin=subprocess.DEVNULL, capture_output=True)
+        best = min(best, (time.perf_counter() - t0) * 1000)
+    return best
+
+
 def test_a_repeat_costs_a_few_milliseconds_not_the_whole_package(rig, cfg):
     name, pane = start(rig, cfg)
     h = hook_commands(cfg)[("PostToolUse", "*")]
     run_hook(h, cfg, "mission-ctl", pane)
-    argv = [sys.executable, "-I", "-S", str(LIGHT), "work"]
     env = {**os.environ, "WZ_ROLE": "mission-ctl", "WZ_HOME": str(cfg.root), "TMUX_PANE": pane}
-    times = []
-    for _ in range(20):
-        t0 = time.perf_counter()
-        subprocess.run(argv, env=env, stdin=subprocess.DEVNULL, check=True)
-        times.append((time.perf_counter() - t0) * 1000)
+    repeat = _best_ms([sys.executable, "-I", "-S", str(LIGHT), "work"], env)
+    bare = _best_ms([sys.executable, "-I", "-S", "-c", "pass"], env)
+    full = _best_ms([sys.executable, str(Path(__file__).resolve().parent.parent / "bin" / "wz"), "--help"], env, n=5)
     assert style(rig, pane) == WORK
-    assert min(times) <= 15, times                  # the plan's budget; the full `wz hook guard` is ~50 ms
+    # Machine-independent: about the cost of starting Python, and far below `wz hook guard`, which imports the whole package
+    # (here 4.6 / 3.6 / 47 ms). Absolute numbers vary by machine; the plan's 15 ms is checked where it is written down.
+    assert repeat < bare + 8 and repeat < full / 2, (repeat, bare, full)
 
 
 def test_a_light_left_over_from_another_pane_does_not_stop_the_new_window_being_painted(rig, cfg):
@@ -159,8 +167,8 @@ def test_killing_claude_clears_the_light(rig, cfg):
     run_hook(hook_commands(cfg)[("UserPromptSubmit", "*")], cfg, "mission-ctl", pane)
     assert style(rig, pane) == WORK
     shell_pid = int(rig.tmux("display-message", "-p", "-t", pane, "#{pane_pid}").stdout)
-    kids = [int(p.name) for p in Path("/proc").iterdir() if p.name.isdigit()
-            and Path(f"/proc/{p.name}/stat").read_text().rsplit(")", 1)[1].split()[1] == str(shell_pid)]
+    table = subprocess.run(["ps", "-A", "-o", "pid=,ppid="], capture_output=True, text=True).stdout.split()
+    kids = [int(p) for p, pp in zip(table[0::2], table[1::2]) if int(pp) == shell_pid]
     assert kids, "the stand-in claude should be a child of the launch script"
     for k in kids:
         os.kill(k, 9)                                       # kill -9, not a clean exit: no SessionEnd hook runs
