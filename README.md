@@ -400,7 +400,7 @@ survives a closed window, a detach and a reboot. Without tmux it runs in your te
 | Start it without attaching | `wz cli <role> --detach` |
 | The conversation | The first start runs `claude --name wz-<project>-<role>`; every later start runs `claude --resume` with that name, from the same `CLAUDE_CONFIG_DIR` (recorded in `.wz/sessions/<role>.json`). `wz cli <role> --print` shows the command. |
 | A fresh conversation | `wz roll <role>` (the name becomes `wz-<project>-<role>-2`, then `-3`). The old conversation stays on disk. |
-| Stop a role | `wz park <role>` closes its tmux session and `wz start-all` leaves it alone; `wz cli <role>` brings it back, resuming. |
+| Stop a role | `wz park <role>` closes its window (and so its tmux session; a hub tab goes too) and `wz start-all` leaves it alone; `wz cli <role>` brings it back, resuming. |
 | After a reboot | `wz start-all` starts, one at a time and detached, every role that had a session and is not parked, and waits for each to show Claude's input box. It never presses a key in a dialog: a login screen or a question is reported, and you open that role with `wz cli <role>`. Exit code 1 if any role is not at its input box. |
 | See them | `wz list`: each role's tmux session, conversation name and state. |
 | Apply a changed `wz.toml`, charter or account | A running session keeps the settings it started with, and `wz cli` says so. `wz cli <role> --restart` closes it and starts it again with the current ones, resuming the same conversation. |
@@ -416,7 +416,7 @@ before it acts, so a left-over session waits quietly (one closed in the middle o
 `wz halt`, which stops a role's queued jobs. If Claude ended within 30 seconds of starting and no conversation by that name
 was saved (a login you abandoned, an immediate `/exit`), the next `wz cli <role>` creates it again instead of resuming nothing.
 
-Tested against tmux 3.0a, 3.1c, 3.4 (Linux) and 3.5a (macOS).
+Tested against tmux 3.0a, 3.1c, 3.4 (Linux) and 3.5a (macOS). Lights, the hub and `wz doctor`: 3.4 and 3.5a only so far.
 
 ### Lights
 
@@ -450,6 +450,26 @@ tmux inside a tmux, so there is one prefix key, and the lights show on the tabs.
 `wz park` closes a role's window, so its tab goes and Claude stops (tmux's `kill-session` on a role whose window is shown in
 another session would have left Claude running). Tab names are the role names; wz names a role's window when it starts it,
 and renames an older one when it first shows it. There is no full-screen picker: `hide` and `show` choose the tabs.
+
+### `wz doctor`: is everything in place?
+
+`wz doctor` looks at this computer and this workspace and says, in plain words, what is fine and what is not. Each problem comes
+with a one-line fix. It changes nothing: it writes no file, starts no session, and reads no password or key.
+
+| It checks | A problem is | The fix it prints |
+|---|---|---|
+| tmux | not installed, or older than 3.0 | the install or upgrade command for a Mac and for Ubuntu |
+| Claude Code | `claude` (or your `[agent] command`) is not found | where to install it, or the `wz.toml` line to correct |
+| Claude Code's login | not signed in (asked of `claude auth status`; only its yes or no is used, its output is thrown away). Each account in `wz.toml` that a helper uses is checked in its own config folder | the `claude` + `/login` line for that account |
+| the workspace | no `wz.toml` found, one that does not load, or a `.wz` folder wz cannot write | `wz init`, or the line of `wz.toml` to correct |
+| the list of workspaces | unreadable, or a workspace in it whose folder is gone | `wz workspaces forget NAME` / `use NAME` |
+| the hooks | `.wz/role-settings.json` missing, or not what this wz writes (written by an older wz, or wz has moved) | `wz charters`, then `wz cli HELPER --restart` |
+| the charters | a helper's `CHARTER.md` missing, or different from what `wz.toml` makes (a hand edit, or `wz.toml` changed) | `wz charters` (a hand edit is lost: put it in `wz.toml` first) |
+| stale colours | a helper has a colour recorded but is not running, or the pane it recorded is not in its window | delete the named file |
+| the permission modes (windows, and background jobs) | (a note, not a problem) any mode where Claude Code does not ask first, with what that means | the `wz.toml` line that puts `default` back |
+
+The exit code is 1 when anything is a problem, 0 otherwise (notes alone do not fail). Without a workspace the checks that need none
+(tmux, Claude Code, its login, the list of workspaces) still run.
 
 ### Which workspace (any folder)
 
