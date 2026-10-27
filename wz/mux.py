@@ -27,6 +27,15 @@ def have() -> bool:
     return shutil.which("tmux") is not None
 
 
+def version() -> str:
+    """`tmux -V` ('tmux 3.4'), or '' when tmux is not installed or does not answer."""
+    try:
+        r = run("-V")
+    except OSError:
+        return ""
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
 def run(*args: str, check: bool = False) -> subprocess.CompletedProcess:
     CALLS.append(args)
     return subprocess.run(["tmux", *args], capture_output=True, text=True, check=check)
@@ -62,6 +71,12 @@ def kill_role(name: str) -> None:
         run("kill-window", "-t", window)
     if has_session(name):
         run("kill-session", "-t", _session(name))
+
+
+def panes(name: str) -> list[str]:
+    """The pane ids (like %12) of the role's window; empty when it has no session."""
+    r = run("list-panes", "-t", f"{_session(name)}:", "-F", "#{pane_id}")
+    return r.stdout.split() if r.returncode == 0 else []
 
 
 def capture_pane(name: str) -> str:
