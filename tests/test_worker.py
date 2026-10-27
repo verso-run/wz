@@ -80,6 +80,14 @@ def test_followups_and_asks(project, monkeypatch):
     assert jobs.get(project, j["id"])["result"]["owner_asks"][0] == "approve the logo"
     fu = (project.root / "ledgers" / "FOLLOWUPS.md").read_text()
     assert "| FU-001 |" in fu and "test the thing" in fu and j["id"] in fu
+    done = jobs.get(project, j["id"])
+    (fid,) = done["followup_jobs"]
+    f = jobs.get(project, fid)
+    assert f["status"] == "held" and f["role"] == "tester" and f["followup_of"] == j["id"]
+    assert f["task"] == "test the thing" and f["evidence"] == "suite green"
+    assert jobs.next_ready(project, "tester")[0] is None
+    jobs.release(project, fid)
+    assert jobs.next_ready(project, "tester")[0]["id"] == fid
 
 
 def test_halt_budget_and_cap(project, monkeypatch):

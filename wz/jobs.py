@@ -4,7 +4,7 @@ A job: role, task, priority (lower runs first, default 50), an optional dependen
 resource leases, a per-job commit unlock, an optional brief and evidence-of-done line. Statuses:
 
   queued    waiting to be served (also while its dependency or a lease is not ready)
-  held      parked by the lead; not served until released. A held job with an open `gate` waits on the OWNER instead:
+  held      parked by the lead (or a finished job's follow-up); not served until released. A held job with an open `gate` waits on the OWNER instead:
             only `wz gate pass` (the owner's own shell) makes it queued; `release` refuses it, and so does every other path
   running   a supervisor process owns it
   done      declared done by the agent, with evidence
@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from . import leases as _leases
 from .util import iso, locked, now, parse_duration, read_json, write_json
+
+MAX_FOLLOWUP_JOBS = 5   # held follow-ups one finished job may leave; the rest are ledger rows only
 
 TERMINAL = {"done", "blocked", "failed", "cancelled"}
 STATUSES = ("queued", "held", "running", "done", "blocked", "failed", "cancelled")
@@ -142,6 +144,53 @@ def pass_gate(cfg, job_id: str, by: str = "owner", note: str = "") -> dict:
         return j
 
 
+def _same_task(a: str, b: str) -> bool:
+    return " ".join(a.lower().split()) == " ".join(b.lower().split())
+
+
+def add_followups(cfg, parent_id: str, followups: list) -> dict:
+    """Turn a finished job's follow-ups into held jobs that name the parent. Returns {"jobs": [ids], "ledger_only":
+    [{"task", "why"}]}; every follow-up still gets its ledger row from the caller.
+
+    Limits: a follow-up of a follow-up is a ledger row only (depth 1); at most MAX_FOLLOWUP_JOBS held jobs per
+    parent; an unknown role, an empty task, or a task already queued or held for that role is ledger only. A held
+    job costs nothing; the lead or owner releases it with `wz job release`."""
+    parent = get(cfg, parent_id)
+    out: dict = {"jobs": [], "ledger_only": []}
+    for f in followups:
+        if isinstance(f, dict) and str(f.get("task") or "").strip():
+            task = str(f["task"]).strip()
+            role = str(f.get("role") or "")
+            if parent.get("followup_of"):
+                why = f"depth: {parent_id} is itself a follow-up of {parent['followup_of']}"
+            elif role not in cfg.roles():
+                why = f"no role {role!r}"
+            elif len(out["jobs"]) >= MAX_FOLLOWUP_JOBS:
+                why = f"cap: {MAX_FOLLOWUP_JOBS} held follow-ups already"
+            else:
+                why = ""
+                with lock(cfg):
+                    dup = next((j["id"] for j in all_jobs(cfg, role)
+                                if j["status"] in ("queued", "held") and _same_task(j["task"], task)), None)
+                    if dup:
+                        why = f"already {dup}"
+                    else:
+                        r = cfg.role(role)
+                        job = {
+                            "id": _next_id(cfg), "role": role, "task": task, "priority": int(parent.get("priority", 50)),
+                            "after": None, "timeout_s": parse_duration(r["timeout"]), "lease": [], "unlock": True,
+                            "brief": parent.get("brief"), "evidence": str(f.get("evidence_of_done") or "") or None,
+                            "worktree": True, "store": r["store"], "status": "held", "created": iso(),
+                            "created_t": now(), "by": f"followup of {parent_id}", "followup_of": parent_id,
+                            "notes": [f"{iso()} held: follow-up of {parent_id}; release it with `wz job release`"],
+                        }
+                        save(cfg, job)
+                        out["jobs"].append(job["id"])
+            if why:
+                out["ledger_only"].append({"task": task, "why": why})
+    return out
+
+
 def cancel(cfg, job_id: str, why: str = "") -> dict:
     return set_status(cfg, job_id, "cancelled", why or "cancelled", {"queued", "held"})
 
@@ -213,6 +262,8 @@ def remint(cfg, job_id: str, timeout=None, task: str | None = None, by: str = ""
         save(cfg, o)
         n = get(cfg, new["id"])
         n["reminted_from"] = job_id
+        if old.get("followup_of"):
+            n["followup_of"] = old["followup_of"]   # a reminted follow-up is still depth 1
         save(cfg, n)
         moved = []
         for j in all_jobs(cfg):
