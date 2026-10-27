@@ -534,10 +534,15 @@ def finish(cfg, job: dict, decl: dict | None, problem: str, rc: int, timed_out: 
                cost_usd=round(cost, 4), result=result)
     jobs.save(cfg, job)
     budget.record(cfg, job["role"], job["id"], cost)
-    for f in (decl or {}).get("followups") or []:
+    fus = (decl or {}).get("followups") or []
+    for f in fus:
         if isinstance(f, dict) and f.get("task"):
             records.ledger_add(cfg, "followups", {"from": job["id"], "role": f.get("role", ""), "task": f["task"],
                                                   "evidence of done": f.get("evidence_of_done", "")})
+    if fus:
+        made = jobs.add_followups(cfg, job["id"], fus)
+        job = {**jobs.get(cfg, job["id"]), "followup_jobs": made["jobs"], "followups_ledger_only": made["ledger_only"]}
+        jobs.save(cfg, job)
     flags.event(cfg, job["role"], "job", job["id"], f"{status}: {result.get('result') or result.get('block_reason') or ''}",
                 status=status)
     return job

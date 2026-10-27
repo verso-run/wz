@@ -71,6 +71,7 @@ whether it still holds. Clearing a hold needs a decision row.
 |---|---|---|
 | merge bot and CI queue | `wz merge` (every 5 min) | Ownership backstop, then the store's checks in a throwaway worktree, then compare-and-swap onto integration. |
 | job timeouts and reminting | `wz job remint <id> [--timeout]` | The old job records `reminted_as`. Queued or held dependents are re-pointed to the new id. A timed-out job gets twice the timeout. |
+| follow-ups as held jobs | `wz job release <id>` | Each follow-up a finished job declares is also written to `FOLLOWUPS.md`, and becomes a held job that names its parent (`followup_of`). At most 5 per finished job; a follow-up of a follow-up, an unknown role, or a task already queued or held for that role is a ledger row only. The job record lists both (`followup_jobs`, `followups_ledger_only`). Release a held one to run it, or cancel it. |
 | backlog refill | `wz backlog refill` | Open defect and follow-up rows land once in `roles/<role>/BACKLOG.md`. |
 | focus and prune | `wz prune` / `--apply` | `[focus] patterns`, `min_priority`, `hold_days`, `jaccard`. Never touches running jobs. |
 | holds with expiry | `wz hold` | above |
