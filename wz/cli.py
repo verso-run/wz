@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import (__version__, packs, approvals, bench, budget, charters, config, digest, featureflags, flags, guard, hands, jobs, light,
+from . import (__version__, packs, approvals, bench, budget, charters, config, digest, featureflags, flags, guard, hands, hub, jobs, light,
                leases, merge, records, registry, release, review, sessions, worker, scan, setup_mode, team, timers, unlock, upkeep, watchdog)
 from .util import now
 
@@ -506,6 +506,20 @@ def cmd_unlock(args) -> int:
     return 0
 
 
+def cmd_hub(args) -> int:
+    cfg = _cfg(args)
+    try:
+        if args.action in ("show", "hide"):
+            if not args.role:
+                raise SystemExit(f"wz hub {args.action}: which role? (roles: {', '.join(cfg.roles())})")
+            return (hub.show if args.action == "show" else hub.hide)(cfg, args.role)
+        if args.role:
+            raise SystemExit(f"wz hub {args.action} takes no role")
+        return hub.kill(cfg) if args.action == "kill" else hub.open_hub(cfg)
+    except (hub.HubError, config.ConfigError) as e:
+        raise SystemExit(f"wz hub: {e}")
+
+
 def cmd_light(args) -> int:
     return light.set_light(args.state)
 
@@ -819,6 +833,10 @@ def parser() -> argparse.ArgumentParser:
     s = add("roll", cmd_roll, "give a role a fresh conversation (new name), started in tmux")
     s.add_argument("role")
     add("list", cmd_list, "each role's session: tmux name, conversation name and state")
+    s = add("hub", cmd_hub, "one terminal with a tab per live role (tmux windows linked in; the roles keep running when it closes). "
+                            "`wz hub show|hide ROLE` changes the tabs, `wz hub kill` closes the hub")
+    s.add_argument("action", nargs="?", choices=["open", "show", "hide", "kill"], default="open")
+    s.add_argument("role", nargs="?")
     s = add("say", cmd_say, "type a line into a role's live session and confirm it was sent; a role with no live session gets it as a "
                             "note at the top of its STATE.md (never a job)")
     s.add_argument("role")
