@@ -17,6 +17,7 @@ import argparse
 import hashlib
 import html
 import json
+import os
 import re
 import shutil
 import sys
@@ -500,6 +501,24 @@ def _methods_for(root: Path) -> str | None:
     return m.read_text() if m.is_file() else None
 
 
+# The modes that write, and the one role wz lets write what they write (answers.json `owns`). The checker is pre-approved for every
+# helper, so wz's guard never sees what it writes; this is the only check there is.
+WRITERS = {"new-project": "mission-ctl", "sources --update": "librarian"}
+
+
+def refusal(a, root: Path, role: str | None) -> str | None:
+    """Why this call may not run, or None. `root` is resolved; `role` is $WZ_ROLE."""
+    here = ROOT.resolve()
+    if root != here and here not in root.parents:
+        return f"--root {root} is outside this workspace ({here}); the checker works on its own folder only"
+    mode = "sources --update" if a.cmd == "sources" and a.update else a.cmd
+    owner = WRITERS.get(mode)
+    if owner and role != owner:
+        who = f"WZ_ROLE is {role!r}" if role else "WZ_ROLE is not set (not run from a wz window)"
+        return f"`{mode}` writes files that belong to the {owner}; {who}. Ask the {owner} (`wz cli {owner}`) to run it"
+    return None
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="qg.py", description=__doc__.split("\n")[0])
     ap.add_argument("--root", default=str(ROOT), help="the qual-guides folder (default: this one)")
@@ -511,7 +530,11 @@ def main(argv=None) -> int:
     s = sub.add_parser("guide-check"); s.add_argument("guide")
     s = sub.add_parser("review-check"); s.add_argument("review"); s.add_argument("guide")
     a = ap.parse_args(argv)
-    root = Path(a.root)
+    root = Path(a.root).resolve()
+    why = refusal(a, root, os.environ.get("WZ_ROLE"))
+    if why:
+        print(f"qg: {why}")
+        return 1
 
     if a.cmd == "new-project":
         try:

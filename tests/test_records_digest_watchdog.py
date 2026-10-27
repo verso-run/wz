@@ -86,3 +86,15 @@ def test_next_cursor_and_flag_hook(project):
     assert flags.wait(project, "app", brief.name, timeout_s=1)
     assert flags.since_cursor(project)[0]["kind"] == "report"
     assert not os.environ.get("WZ_ROLE")
+
+
+def test_brief_new_never_overwrites_a_brief_made_at_the_same_moment(project, monkeypatch):
+    first = records.brief_new(project, "same-slug", "app", "mine")
+    first.write_text("the first one's work")
+    # a second `wz brief new` that listed the folder before the first one wrote: it counts the same number
+    real_glob = type(first.parent).glob
+    monkeypatch.setattr(type(first.parent), "glob", lambda self, pat: iter([]) if self == first.parent else real_glob(self, pat))
+    second = records.brief_new(project, "same-slug", "app", "yours")
+    assert second != first and second.name.startswith("02-same-slug")
+    assert first.read_text() == "the first one's work"
+    assert "yours" in second.read_text()

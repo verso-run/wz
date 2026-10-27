@@ -243,12 +243,13 @@ methods base” rather than inventing support. Add your own reading to `sources/
 ## What the checks do, and do not do
 
 `python3 tools/qg.py` (plain Python, nothing to install) does the parts that need no judgement; the helpers run it
-and then use their own:
+and then use their own. The two modes that write refuse unless they run in the right role's window (wz tells each window
+who it is), and the checker only works on its own folder. Run from a plain Terminal they are refused too:
 
 | Command | Does |
 |---|---|
-| `new-project <name>` | makes `projects/<name>/` from the template |
-| `sources [--update]` | lists what is in `sources/` and what is new or changed since last time |
+| `new-project <name>` | makes `projects/<name>/` from the template (only the coordinator, `mission-ctl`, may run it) |
+| `sources [--update]` | lists what is in `sources/` and what is new or changed since last time; `--update` writes the index and only the librarian may run it |
 | `quotes <file>` | opens each link in the file and confirms every quoted line is really on the page |
 | `lint <guide>` | flags questions that start with is/do/would (yes/no), carry a push or a loaded word (leading), join two questions with and/or (double-barrelled), or use jargon (a built-in list plus the project's `jargon.txt`) |
 | `guide-check <guide>` | every part is there, minutes are written and add up to the total, every question has a follow-up, the consent script mentions recording, stopping, privacy and no wrong answers |
