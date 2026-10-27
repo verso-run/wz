@@ -213,10 +213,10 @@ Rules you must follow all the way through:
 
 Do these steps in order, telling me in one or two plain sentences what each is about to do before you do it.
 
-Step 1. Fetch the installer, pinned to the release v0.1.2, and check it has not been changed:
-  mkdir -p "$HOME/.cache/wz-install" && curl -fsSL https://raw.githubusercontent.com/verso-run/wz/v0.1.2/install.sh -o "$HOME/.cache/wz-install/install.sh"
+Step 1. Fetch the installer, pinned to the release v0.2.0, and check it has not been changed:
+  mkdir -p "$HOME/.cache/wz-install" && curl -fsSL https://raw.githubusercontent.com/verso-run/wz/v0.2.0/install.sh -o "$HOME/.cache/wz-install/install.sh"
 Then compute its SHA-256 (`shasum -a 256` on a Mac, `sha256sum` on Linux). It must be exactly
-  75387727ba0ddc6fdba23b9f363b7ae1a14cb14f45bb165782baa2b9010fd4e3
+  0e59faff023311f72de8b8b38f5180a117109fdf35d456f6a6aaf0ba80ad3d28
 If it is not exactly that, stop, tell me the installer does not match, and do not run it.
 
 Step 2. Look at this computer: run `sh "$HOME/.cache/wz-install/install.sh" check`. Tell me in plain words what it found (Mac or Linux, what is already installed). If it stops with a message, tell me that message in your own plain words and stop there.
@@ -258,7 +258,7 @@ uninstall line, are on [START-HERE.md](START-HERE.md).
 The Terminal one-liner does what the prompt does without Claude, then opens Claude (which needs the same sign-in):
 
 ```sh
-mkdir -p "$HOME/.cache/wz-install" && curl -fsSL https://raw.githubusercontent.com/verso-run/wz/v0.1.2/install.sh -o "$HOME/.cache/wz-install/install.sh" && sh "$HOME/.cache/wz-install/install.sh"
+mkdir -p "$HOME/.cache/wz-install" && curl -fsSL https://raw.githubusercontent.com/verso-run/wz/v0.2.0/install.sh -o "$HOME/.cache/wz-install/install.sh" && sh "$HOME/.cache/wz-install/install.sh"
 ```
 
 Or from a checkout, with Python 3.11+:

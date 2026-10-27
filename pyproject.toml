@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wz"
-version = "0.1.2"
+version = "0.2.0"
 description = "Mission control for a team of AI agents: a lead, owned work, a job queue, a guard, and the owner's sign."
 readme = "README.md"
 license = "Apache-2.0"
