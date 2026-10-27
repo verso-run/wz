@@ -74,8 +74,9 @@ def _owns_text(r: dict) -> str:
 
 
 MODE_TEXT = {
-    "default": "Claude Code asks the owner before it acts on anything the owner has not already allowed (reading is not "
-               "asked about), and the owner is at the keyboard to answer.",
+    "default": "Claude Code asks the owner before it acts on anything the owner has not already allowed (reading is not asked about). A background job has nobody to answer, so a job cannot do "
+               "anything that needs a yes; an interactive session can ask. If a job needs something it cannot get, say "
+               "so in your report and stop.",
     "plan": "Claude Code only plans: it does not edit files or run commands. Say in your report what you would have done.",
     "acceptEdits": "Claude Code accepts file edits without asking. It still asks before other actions.",
     "auto": "Claude Code decides for itself what to ask about; it does not ask before every action, and wz has not "

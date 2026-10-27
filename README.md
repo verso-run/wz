@@ -286,12 +286,9 @@ You also need Claude Code installed and logged in (`claude` on your PATH). git i
 
 Read this before you start a timer.
 
-- wz passes the permission mode to Claude Code unchanged, and the two kinds of run have different defaults. A `wz cli`
-  window uses `[agent] permission_mode`, default `default`: Claude Code asks before it edits or runs anything you have not
-  already allowed, and you are there to answer. A background job (`wz job add` then `wz serve`, a timer, or `--follow`)
-  uses `[agent] job_permission_mode`, default `auto`: nobody is there to answer, so Claude Code decides for itself what to
-  stop at and the job can write files without asking. wz has not checked where `auto` still stops, and says so at every
-  job start (see "Permission mode" below). The guard is a seatbelt, not a sandbox (see "What the guard does not do" below).
+- wz passes `[agent] permission_mode` to Claude Code unchanged, and the default is `default`: Claude Code asks before it
+  edits or runs anything you have not already allowed. Any other mode has to be written in `wz.toml`, and wz says so at every `wz cli` and job start (see
+  "Permission mode" below). The guard is a seatbelt, not a sandbox (see "What the guard does not do" below).
 - Timers spend unattended, up to `[budget] daily_usd` per day. A job that is already running can pass that figure.
 - Run wz as a dedicated user or in a VM, an account that cannot reach what it must never touch. This matters most if
   you set a mode in which Claude Code does not ask.
