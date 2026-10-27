@@ -418,6 +418,20 @@ was saved (a login you abandoned, an immediate `/exit`), the next `wz cli <role>
 
 Tested against tmux 3.0a, 3.1c, 3.4 (Linux) and 3.5a (macOS).
 
+### Lights
+
+A role's tmux window changes colour with what its Claude is doing: **amber** while it works (from your prompt on), **red**
+when it asks you something (a question, a plan to approve, a permission), **green** when it has stopped and waits for you.
+When Claude ends, the colour goes and your own tmux theme is back. `wz list` shows the same state in its `light` column.
+
+The colours come from Claude Code hooks that `wz charters` (and `wz init`) write into `.wz/role-settings.json`; there is no
+background process and no hub needed. `wz light <work|ask|done|off>` is the command they run, from a small file that
+does not load the rest of wz, so it adds a few milliseconds to a prompt or a tool call, and a repeat of the state a window
+already shows runs no tmux at all. A background job never paints a chat's window. A session that is already running keeps the
+settings it started with: `wz cli <role> --restart` (it keeps the conversation) turns the lights on. The colour is a tmux
+window option (`window-status-style`), so a theme that sets `window-status-current-style` for the window you are in hides it
+there; the same window shown as a tab elsewhere is not affected.
+
 ### Which workspace (any folder)
 
 `wz init` records the workspace in a per-user list, `workspaces.json` in `$XDG_CONFIG_HOME/wz` (else `~/.config/wz`), and the
