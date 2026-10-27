@@ -36,7 +36,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from . import charters, mux, timers, util
+from . import charters, light, mux, timers, util
 
 RULE = re.compile(r"^[─-]{20,}")
 RESUME_PICKER = re.compile(r"Resume Session|No sessions match|No conversations found", re.I)
@@ -81,10 +81,13 @@ def running(name: str) -> bool:
     return mux.has_session(name)
 
 
-def _kill(name: str) -> None:
-    """Stop the role's Claude for good, also when its window is linked into another tmux session (see mux.kill_role)."""
+def _kill(name: str, cfg=None, role: str = "") -> None:
+    """Stop the role's Claude for good, also when its window is linked into another tmux session (see mux.kill_role).
+    Given the role, also forgets its light (the window it was painted on is gone)."""
     if running(name):
         mux.kill_role(name)
+    if cfg is not None and role:
+        light.clear(str(cfg.root), role)
 
 
 def capture(name: str) -> str:
@@ -214,6 +217,7 @@ def _script(cfg, p: dict) -> Path:
               "t0=$(date +%s)",
               " ".join(q(c) for c in p["cmd"]),
               "rc=$?",
+              " ".join(q(c) for c in [*light.command(), "off"]),          # a dead Claude must not leave its light on
               f"echo \"exited $rc $(( $(date +%s) - t0 ))\" > {q(str(marker))}",
               "printf '\\n[wz] Claude ended (exit %s). Its conversation is saved. This window is a plain shell now.\\n' \"$rc\"",
               f"printf '[wz] To go on, leave it and run:  wz cli {p['role']}\\n'",
@@ -291,10 +295,10 @@ def ensure(cfg, role: str, *, restart: bool = False, wait: float = 0.0) -> str:
         _check_owner(cfg, name)
         if _exited(cfg, role):
             print(f"wz: Claude had ended in {name}; starting it again ({p['name']})")
-            _kill(name)
+            _kill(name, cfg, role)
             how = "restarted"
         elif restart:
-            _kill(name)
+            _kill(name, cfg, role)
             how = "restarted"
         else:
             if load(cfg, role)["sig"] != p["sig"]:
@@ -383,7 +387,8 @@ def park(cfg, role: str) -> int:
     name = tmux_name(cfg, role)
     was = have_tmux() and running(name)
     if was:
-        _kill(name)
+        _kill(name, cfg, role)
+    light.clear(str(cfg.root), role)
     st = load(cfg, role)
     st["parked"] = True
     save(cfg, role, st)
@@ -396,7 +401,7 @@ def roll(cfg, role: str) -> int:
     cfg.role(role)
     name = tmux_name(cfg, role)
     if have_tmux():
-        _kill(name)
+        _kill(name, cfg, role)
     st = load(cfg, role)
     st.update(n=st["n"] + 1, launched=False, parked=False)
     save(cfg, role, st)
@@ -444,8 +449,8 @@ def role_state(cfg, role: str) -> str:
 
 
 def list_roles(cfg) -> int:
-    rows = [{"role": r, "tmux session": tmux_name(cfg, r), "conversation": conversation(cfg, r), "state": role_state(cfg, r)}
-            for r in cfg.roles()]
+    rows = [{"role": r, "tmux session": tmux_name(cfg, r), "conversation": conversation(cfg, r), "state": role_state(cfg, r),
+             "light": light.current(str(cfg.root), r) or "-"} for r in cfg.roles()]
     w = {c: max(len(c), *(len(x[c]) for x in rows)) for c in rows[0]} if rows else {}
     if not rows:
         print("(no roles)")

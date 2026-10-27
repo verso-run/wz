@@ -86,3 +86,10 @@ def switch_client(name: str) -> subprocess.CompletedProcess:
 
 def attach(name: str) -> int:
     return call("attach-session", "-t", _session(name))
+
+
+def paint_window(pane: str, option: str, value: str | None) -> bool:
+    """Set (or, with None, unset) a window option on the window that holds `pane` (an id like %12, from $TMUX_PANE).
+    False when tmux refused it (no such pane). A linked window shows the option in every session it is linked into."""
+    r = run("set-option", "-w", *(["-u"] if value is None else []), "-t", pane, option, *([value] if value is not None else []))
+    return r.returncode == 0

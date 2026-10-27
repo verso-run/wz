@@ -9,9 +9,9 @@ import shlex
 from pathlib import Path
 from string import Template
 
-from . import packs
+from . import light, packs
 from .records import TEMPLATES
-from .util import write_json
+from .util import read_json, write_json
 
 LEAD_EXTRA = """
 **Lead commands:** `wz decide "<the owner's exact words>" --reading "<your reading>"` (no words: `--proposal`) ·
@@ -59,12 +59,26 @@ def lead_extra(cfg) -> str:
     return LEAD_EXTRA + (SIMPLE_LEAD if simple_marker(cfg).is_file() else "")
 
 
+def _light_hook(state: str, *, matcher: str = "*", background: bool = False) -> dict:
+    """One hook entry that sets the role's light. `background`: Claude does not wait for it (it runs on every tool)."""
+    cmd = " ".join(shlex.quote(a) for a in [*light.command(), state])
+    return {"matcher": matcher, "hooks": [{"type": "command", "command": cmd, **({"async": True} if background else {})}]}
+
+
 def hook_settings() -> dict:
     from .worker import wz_argv
     base = " ".join(shlex.quote(a) for a in wz_argv())
     return {"hooks": {
-        "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": f"{base} hook guard"}]}],
-        "PostToolUse": [{"matcher": "Edit|Write|MultiEdit", "hooks": [{"type": "command", "command": f"{base} hook flag"}]}],
+        "SessionStart": [_light_hook("done")],
+        "UserPromptSubmit": [_light_hook("work")],
+        "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": f"{base} hook guard"}]},
+                       _light_hook("ask", matcher="AskUserQuestion|ExitPlanMode")],
+        "PermissionRequest": [_light_hook("ask")],             # the moment a permission dialog opens; Notification is ~6 s later
+        "Notification": [_light_hook("ask", matcher="permission_prompt|elicitation_dialog")],
+        "PostToolUse": [{"matcher": "Edit|Write|MultiEdit", "hooks": [{"type": "command", "command": f"{base} hook flag"}]},
+                        _light_hook("work", background=True)],
+        "Stop": [_light_hook("done")],
+        "SessionEnd": [_light_hook("off")],
     }}
 
 
@@ -158,8 +172,11 @@ def ensure(cfg, role: str) -> None:
     """Make the role's charter and the hook settings current before a session or job starts; other charters are left alone."""
     if not cfg.role_settings.is_file() or not cfg.charter_path(role).is_file():
         write_all(cfg)
-    elif stale(cfg, role):
+        return
+    if stale(cfg, role):
         cfg.charter_path(role).write_text(render(cfg, role))
+    if read_json(cfg.role_settings) != hook_settings():          # a newer wz hooks more events (lights): older workspaces get them
+        write_json(cfg.role_settings, hook_settings())
 
 
 def write_all(cfg) -> list[Path]:

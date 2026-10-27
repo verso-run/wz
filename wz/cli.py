@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import (__version__, packs, approvals, bench, budget, charters, config, digest, featureflags, flags, guard, hands, jobs,
+from . import (__version__, packs, approvals, bench, budget, charters, config, digest, featureflags, flags, guard, hands, jobs, light,
                leases, merge, records, registry, release, review, sessions, worker, scan, setup_mode, team, timers, unlock, upkeep, watchdog)
 from .util import now
 
@@ -504,6 +504,10 @@ def cmd_unlock(args) -> int:
         unlock.grant(cfg, args.role, hours=args.hours, by=_me())
         print(f"{args.role} may commit for {args.hours} h")
     return 0
+
+
+def cmd_light(args) -> int:
+    return light.set_light(args.state)
 
 
 def cmd_hook(args) -> int:
@@ -1032,6 +1036,9 @@ def parser() -> argparse.ArgumentParser:
 
     s = add("hook", cmd_hook, "Claude Code hook entry points (guard, flag)")
     s.add_argument("which", choices=["guard", "flag"])
+
+    s = add("light", cmd_light, "colour this role's tmux window: work (amber), ask (red), done (green), off (what Claude Code hooks run)")
+    s.add_argument("state", choices=light.STATES)
 
     s = add("install", cmd_install, "write the hook settings, or install the timers")
     s.add_argument("what", choices=["hooks", "timers"])
