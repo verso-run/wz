@@ -110,9 +110,14 @@ def brief_new(cfg, slug: str, role: str, title: str = "") -> Path:
     d.mkdir(parents=True, exist_ok=True)
     nums = [int(m.group(1)) for p in d.glob("*.md") if (m := re.match(r"^(\d+)-", p.name))]
     n = max(nums, default=0) + 1
-    p = d / f"{n:02d}-{slug}.md"
     tpl = (d / "TEMPLATE.md") if (d / "TEMPLATE.md").exists() else (TEMPLATES / "brief.md")
-    text = tpl.read_text().replace("{NN}", f"{n:02d}").replace("{slug}", slug).replace("{role}", role)
-    text = text.replace("{title}", title or slug.replace("-", " ")).replace("{date}", today())
-    p.write_text(text)
-    return p
+    while True:
+        text = tpl.read_text().replace("{NN}", f"{n:02d}").replace("{slug}", slug).replace("{role}", role)
+        text = text.replace("{title}", title or slug.replace("-", " ")).replace("{date}", today())
+        p = d / f"{n:02d}-{slug}.md"
+        try:
+            with open(p, "x") as f:             # exclusive: a second `wz brief new` with the same slug must not overwrite this one
+                f.write(text)
+            return p
+        except FileExistsError:
+            n += 1

@@ -23,18 +23,49 @@ TUI = Path(__file__).resolve().parent / "fake_claude_tui.py"
 REAL_TMUX = shutil.which("tmux")
 
 
+def stop_server(sock) -> list[int]:
+    """Kill the tmux server on this socket dir and return the pids of every pane process it had (all gone, or a test fails).
+
+    TMUX is dropped from the environment first: a test that sets it to a made-up socket (as the switch-client one does) would
+    otherwise point `kill-server` at that socket and leave the real server, and the stand-in `claude` in its panes, running.
+    """
+    env = {k: v for k, v in os.environ.items() if k != "TMUX"} | {"TMUX_TMPDIR": str(sock)}
+    panes = subprocess.run([REAL_TMUX, "list-panes", "-a", "-F", "#{pane_pid}"], capture_output=True, text=True, env=env)
+    pids = [int(x) for x in panes.stdout.split()]
+    subprocess.run([REAL_TMUX, "kill-server"], capture_output=True, env=env)
+    return pids
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    try:                                            # a zombie (not yet reaped by its parent) is gone for our purposes
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
+    except OSError:
+        return True
+
+
+def wait_gone(pids, timeout=5) -> list[int]:
+    end = time.time() + timeout
+    while time.time() < end and any(_alive(p) for p in pids):
+        time.sleep(0.05)
+    return [p for p in pids if _alive(p)]
+
+
 class Rig:
     def __init__(self, tmp_path, sock, bindir):
         self.tmp, self.sock, self.bindir = tmp_path, sock, bindir
 
-    def workspace(self, name="ws", project="fernhill", extra_roles=None):
+    def workspace(self, name="ws", project="fernhill", extra_roles=None, agent_command="claude"):
         base = self.tmp / name
         base.mkdir(parents=True, exist_ok=True)
         make_repo(base / "app")
         (base / "office" / "drafts").mkdir(parents=True)
         a = answers(base)
         a["project"] = project
-        a["agent_command"] = "claude"
+        a["agent_command"] = agent_command
         a["roles"].update(extra_roles or {})
         return setup_mode.apply(a, base / "home dir", git_init=False)
 
@@ -42,7 +73,8 @@ class Rig:
         return cli.main(["--config", str(cfg.path), *argv])
 
     def tmux(self, *a):
-        return subprocess.run([REAL_TMUX, *a], capture_output=True, text=True)
+        env = {k: v for k, v in os.environ.items() if k != "TMUX"}
+        return subprocess.run([REAL_TMUX, *a], capture_output=True, text=True, env=env)
 
     def has(self, name):
         return self.tmux("has-session", "-t", "=" + name).returncode == 0
@@ -84,8 +116,9 @@ def rig(tmp_path, monkeypatch):
     monkeypatch.setenv("WZ_SAY_WAIT", "0.4")
     r = Rig(tmp_path, sock, bindir)
     yield r
-    subprocess.run([REAL_TMUX, "kill-server"], capture_output=True, env={**os.environ, "TMUX_TMPDIR": str(sock)})
+    left = wait_gone(stop_server(sock))
     shutil.rmtree(sock, ignore_errors=True)
+    assert not left, f"the test left processes running in its tmux server: {left}"
 
 
 @pytest.fixture
@@ -95,6 +128,18 @@ def cfg(rig):
 
 def arg(call, flag):
     return call["args"][call["args"].index(flag) + 1]
+
+
+def test_the_rig_stops_its_server_and_the_stand_in_even_when_the_test_set_TMUX(rig, cfg, monkeypatch):
+    assert rig.wz(cfg, "cli", "mission-ctl", "--detach") == 0
+    rig.calls(cfg, 1)
+    pids = [int(x) for x in rig.tmux("list-panes", "-a", "-F", "#{pane_pid}").stdout.split()]
+    assert pids and all(_alive(p) for p in pids)
+    monkeypatch.setenv("TMUX", "/tmp/not-a-real-socket,1,0")        # what the switch-client test does, and keeps until it ends
+    assert wait_gone(stop_server(rig.sock)) == []
+    assert wait_gone(pids) == []                                    # the pane's shell and the stand-in `claude`
+    monkeypatch.delenv("TMUX")
+    assert rig.tmux("list-sessions").returncode != 0                # no server answers on this socket any more
 
 
 # ---- first start ---------------------------------------------------------------------------------------------------
@@ -109,6 +154,14 @@ def test_first_start_is_named_and_gets_its_environment(rig, cfg):
     assert e["WZ_SCRATCH"] == str(cfg.scratch("mission-ctl")) and e["WZ_JOB"] is None
     assert e["PATH"].split(os.pathsep)[0] == str(rig.bindir)
     assert arg(c, "--append-system-prompt-file") == str(cfg.charter_path("mission-ctl"))
+
+
+def test_a_quoted_agent_command_reaches_claude_as_the_same_arguments(rig):
+    rule = "WebSearch,WebFetch,Bash(python3 tools/qg.py *)"
+    cfg = rig.workspace(agent_command=f'claude --allowedTools "{rule}"')
+    assert rig.wz(cfg, "cli", "mission-ctl", "--detach") == 0
+    (c,) = rig.calls(cfg, 1)
+    assert c["args"][c["args"].index("--allowedTools") + 1] == rule          # one argument, quotes gone, not split at the spaces
 
 
 def test_environment_comes_from_the_shell_not_from_the_server(rig, cfg, monkeypatch):

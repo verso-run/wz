@@ -229,11 +229,15 @@ def follow(cfg, role: str | None = None, say=print, poll: float = 3.0) -> dict:
 
 def activity(cfg, job: dict) -> tuple[float | None, int]:
     """(seconds since the running job's output log last grew, its size in bytes); (None, 0) when no log exists yet."""
-    p = cfg.state / "logs" / f"{job['id']}.out"
-    try:
-        st = p.stat()
-    except OSError:
+    stats = []
+    for suffix in ("out", "fix.out"):            # the fix turn after a missing declaration writes its own log
+        try:
+            stats.append((cfg.state / "logs" / f"{job['id']}.{suffix}").stat())
+        except OSError:
+            pass
+    if not stats:
         return None, 0
+    st = max(stats, key=lambda s: s.st_mtime)
     return max(0.0, time.time() - st.st_mtime), st.st_size
 
 
@@ -259,11 +263,11 @@ def _brief_event(obj: dict) -> list[str]:
 
 def tail(cfg, job_id: str, n: int = 10) -> list[str]:
     """The last n things the job's agent said or did, from its stream log (empty until it has produced any)."""
-    p = cfg.state / "logs" / f"{job_id}.out"
-    if not p.is_file():
+    files = [p for p in (cfg.state / "logs" / f"{job_id}.out", cfg.state / "logs" / f"{job_id}.fix.out") if p.is_file()]
+    if not files:
         return []
     lines = []
-    for raw in p.read_text(errors="replace").splitlines():
+    for raw in "\n".join(p.read_text(errors="replace") for p in files).splitlines():
         raw = raw.strip()
         if raw.startswith("{"):
             try:

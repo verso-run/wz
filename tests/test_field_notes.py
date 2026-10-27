@@ -238,3 +238,35 @@ def test_the_lead_charter_names_the_follow_runner_for_a_workspace_without_timers
     charters.write_all(project)
     lead = project.charter_path(project.lead()).read_text()
     assert "`wz serve --follow`" in lead and "`wz job add` starts nothing" in lead
+
+
+# ---- cleanup after the PR 2-4 reviews ------------------------------------------------------------------------------
+def test_activity_and_tail_follow_the_fix_turn_log(project):
+    import os
+    logs = project.state / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    ev = lambda text: json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}}) + "\n"
+    (logs / "job-9.out").write_text(ev("first turn"))
+    os.utime(logs / "job-9.out", (time.time() - 500, time.time() - 500))
+    age, _ = worker.activity(project, {"id": "job-9"})
+    assert 499 < age < 600
+    (logs / "job-9.fix.out").write_text(ev("the fix turn") * 2)
+    age, size = worker.activity(project, {"id": "job-9"})
+    assert age < 30 and size == len(ev("the fix turn") * 2)           # the newer of the two logs
+    assert worker.tail(project, "job-9") == ["says: first turn", "says: the fix turn", "says: the fix turn"]
+    assert worker.activity(project, {"id": "job-none"}) == (None, 0) and worker.tail(project, "job-none") == []
+
+
+def test_follow_keeps_going_when_a_job_becomes_startable_between_serve_and_the_check(project, monkeypatch):
+    """The race `_startable` exists for: serve() starts nothing now, the job is still ready, so follow must ask serve again."""
+    j = jobs.add(project, "writer", "ready")
+    calls = []
+
+    def fake_serve(cfg, role=None, say=print, **kw):
+        calls.append(1)
+        if len(calls) == 2:
+            jobs.cancel(cfg, j["id"])
+        return []
+    monkeypatch.setattr(worker, "serve", fake_serve)
+    worker.follow(project, role="writer", say=lambda *_: None, poll=0.01)
+    assert len(calls) == 2
