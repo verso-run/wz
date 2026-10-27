@@ -360,6 +360,22 @@ they are not rewritten when you change the mode.
 6. **Watch it** with `wz status`, `wz queue` and `wz next`. Read `status/DIGEST-<date>.md` each morning. To sign
    from your phone, run `wz approve serve` and reach it over your own VPN or an SSH tunnel.
 
+### Gates: a step that waits for you
+
+When a step needs your decision before the work after it should start ("you pick the sources"), the lead adds the job
+with a gate:
+
+```sh
+wz job add librarian "read the two journals and write the note" --gate "owner picks sources"
+wz gate list               # everything that waits on you (also in `wz status` and the digest, under "waiting on you")
+wz gate pass job-0004      # your go-ahead: the job is queued and runs next
+```
+
+A gated job is held, not a new status, and it is not the same as `wz job hold`: a hold is the lead's pause and the lead
+can release it; a gate is yours. `wz job release` refuses a gate, `wz gate pass` is refused inside any role session
+(the lead's too) and by the guard, and a job that comes after a gated one waits for it. `wz serve --follow` runs up to
+the gate, names it, and stops; run it again after you pass the gate. `wz prune` never cancels a gate, however old.
+
 ## Sessions
 
 `wz cli <role>` opens a role's interactive session: one named Claude conversation per role, kept in a tmux session so it

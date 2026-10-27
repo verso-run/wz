@@ -146,6 +146,8 @@ def _alive(pid) -> bool:
 def _why_not_started(cfg, j: dict, by_id: dict) -> str:
     if j["role"] not in cfg.roles():
         return f"its role {j['role']!r} is not in wz.toml, so it will not start"
+    if jobs.open_gate(j):
+        return f"waits on you: {jobs.open_gate(j)} (`wz gate pass {j['id']}`)"
     if j["status"] == "held":
         notes = [n for n in j.get("notes", []) if " held:" in n]
         return "held: " + (notes[-1].split(" held:", 1)[1].strip() if notes else "no reason given") + \
@@ -217,12 +219,18 @@ def follow(cfg, role: str | None = None, say=print, poll: float = 3.0) -> dict:
         say("stopped following; jobs already started keep running (`wz status` shows them)")
         return seen
     by_id = {j["id"]: j for j in jobs.all_jobs(cfg)}
-    left = [j for j in by_id.values() if j["status"] in ("queued", "held") and (role is None or j["role"] == role)]
+    gates = jobs.gates(cfg, role)
+    if gates:
+        say(f"stopped at {len(gates)} gate(s) that wait on you (pass one with `wz gate pass ID`, then run `wz serve --follow` again):")
+        for j in gates:
+            say(f"  {j['id']} ({j['role']}) {jobs.open_gate(j)}")
+    left = [j for j in by_id.values() if j["status"] in ("queued", "held") and not jobs.open_gate(j)
+            and (role is None or j["role"] == role)]
     if left:
         say("left waiting:")
         for j in jobs.queue_order(left):
             say(f"  {j['id']} ({j['role']}) {_why_not_started(cfg, j, by_id)}")
-    else:
+    elif not gates:
         say("queue idle: nothing left waiting")
     return seen
 
@@ -457,6 +465,8 @@ def declaration(text: str) -> tuple[dict | None, str]:
 
 def run_job(cfg, job_id: str) -> dict:
     job = jobs.get(cfg, job_id)
+    if jobs.open_gate(job):
+        raise jobs.JobError(f"{job_id} waits on the owner's gate ({jobs.open_gate(job)}); it does not run until `wz gate pass {job_id}`")
     names = job.get("lease", [])
     fds = leases.acquire(cfg, names, holder=job_id, hold_s=job["timeout_s"]) if names else []
     if fds is None:

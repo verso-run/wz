@@ -205,7 +205,10 @@ def cmd_job(args) -> int:
     if args.action == "add":
         j = jobs.add(cfg, args.role, args.task, priority=args.priority, after=args.after, timeout=args.timeout,
                      lease=args.lease or [], unlock=not args.no_unlock, brief=args.brief, evidence=args.evidence,
-                     worktree=not args.no_worktree, by=_me())
+                     worktree=not args.no_worktree, by=_me(), gate=args.gate)
+        if args.gate:
+            print(f"{j['id']} for {j['role']} waits on you: {args.gate}\n  it does not run until you pass it: `wz gate pass {j['id']}`")
+            return 0
         print(f"{j['id']} queued for {j['role']} (P{j['priority']}" + (f", after {j['after']}" if j["after"] else "") + ")")
         hint = worker.serve_idle_hint(cfg)
         if hint:
@@ -219,6 +222,8 @@ def cmd_job(args) -> int:
         rows = []
         for j in jobs.queue_order(every):
             note = jobs.wait_reason(cfg, j, by_id) if j["status"] == "queued" else (j.get("result") or {}).get("result", "")
+            if jobs.open_gate(j):
+                note = "waits on you: " + jobs.open_gate(j)
             if j["status"] == "running":
                 note = _activity_note(cfg, j)
             rows.append({"id": j["id"], "role": j["role"], "P": j["priority"], "status": j["status"],
@@ -248,6 +253,37 @@ def cmd_job(args) -> int:
     j = fn(cfg, j_id) if args.action == "release" else fn(cfg, j_id, args.why or "")
     print(f"{j['id']} is {j['status']}")
     return 0
+
+
+def cmd_gate(args) -> int:
+    cfg = _cfg(args)
+    if args.action in ("list", None):
+        every = jobs.gates(cfg, args.role)
+        if args.all:
+            every = jobs.queue_order(every + jobs.gates(cfg, args.role, "passed"))
+        rows = [{"id": j["id"], "role": j["role"], "state": j["gate"]["state"], "decides": j["gate"]["text"][:60],
+                 "task": j["task"][:40]} for j in every]
+        print(_table(rows, ["id", "role", "state", "decides", "task"]) if rows else "no gate waits on you")
+        return 0
+    if os.environ.get("WZ_ROLE"):
+        raise SystemExit(f"wz gate pass: a gate is the owner's decision; it cannot run inside a role session (you are {os.environ['WZ_ROLE']})")
+    try:
+        j = jobs.pass_gate(cfg, args.id, by=_me(), note=args.note or "")
+    except jobs.JobError as e:
+        raise SystemExit(f"wz gate pass: {e}")
+    print(f"{j['id']} ({j['role']}) is queued: {j['gate']['text']}")
+    hint = worker.serve_idle_hint(cfg)
+    if hint:
+        print("note: " + hint)
+    return 0
+
+
+def _waiting_on_you(cfg) -> list[str]:
+    gates = jobs.gates(cfg)
+    if not gates:
+        return []
+    return ["", f"waiting on you ({len(gates)}):"] + [
+        f"  {j['id']} ({j['role']}) {jobs.open_gate(j)} - `wz gate pass {j['id']}`" for j in gates]
 
 
 def _activity_note(cfg, j: dict) -> str:
@@ -531,6 +567,8 @@ def cmd_status(args) -> int:
     print(f"permission mode: {mode}" + ("" if mode in config.SAFE_MODES else
           f"  ({config.MODE_FACTS[mode]} See README \"Permission mode\".)"))
     print(_table(rows, ["role", "pack", "running", "queued", "held", "halted", "unlock"]))
+    for line in _waiting_on_you(cfg):
+        print(line)
     live = [j for j in every if j["status"] == "running"]
     if live:
         print("\nrunning now:")
@@ -863,6 +901,8 @@ def parser() -> argparse.ArgumentParser:
     a.add_argument("--brief")
     a.add_argument("--evidence", help="what done will be checked against")
     a.add_argument("--no-worktree", action="store_true")
+    a.add_argument("--gate", metavar="WORDS", help="the owner decides first (\"owner picks sources\"): the job is held "
+                   "until `wz gate pass ID`, which only the owner runs")
     a = js.add_parser("list")
     a.add_argument("--role")
     a.add_argument("--all", action="store_true")
@@ -877,6 +917,16 @@ def parser() -> argparse.ArgumentParser:
     a = js.add_parser("remint", help="re-queue a failed, blocked or cancelled job; dependents follow the new id")
     a.add_argument("id")
     a.add_argument("--timeout", help="default: the old timeout, doubled when it timed out")
+    s.set_defaults(role=None, all=False)
+
+    s = add("gate", cmd_gate, "the owner's gates: list the jobs that wait on you, or pass one (owner only)")
+    gs = s.add_subparsers(dest="action")
+    a = gs.add_parser("list", help="gates waiting on you")
+    a.add_argument("--role")
+    a.add_argument("--all", action="store_true", help="include gates already passed")
+    a = gs.add_parser("pass", help="the owner's go-ahead: the held job is queued")
+    a.add_argument("id")
+    a.add_argument("--note", help="a line to keep with the decision")
     s.set_defaults(role=None, all=False)
 
     s = add("queue", cmd_job, "the queue (same as `wz job list`)")

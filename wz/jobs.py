@@ -4,7 +4,8 @@ A job: role, task, priority (lower runs first, default 50), an optional dependen
 resource leases, a per-job commit unlock, an optional brief and evidence-of-done line. Statuses:
 
   queued    waiting to be served (also while its dependency or a lease is not ready)
-  held      parked by the lead; not served until released
+  held      parked by the lead; not served until released. A held job with an open `gate` waits on the OWNER instead:
+            only `wz gate pass` (the owner's own shell) makes it queued; `release` refuses it, and so does every other path
   running   a supervisor process owns it
   done      declared done by the agent, with evidence
   blocked   declared blocked by the agent, with a reason; jobs that depend on it stay waiting
@@ -68,10 +69,12 @@ def _next_id(cfg) -> str:
 
 def add(cfg, role: str, task: str, priority: int = 50, after: str | None = None, timeout=None, lease=(),
         unlock: bool = True, brief: str | None = None, evidence: str | None = None, worktree: bool = True,
-        by: str = "") -> dict:
+        by: str = "", gate: str | None = None, gate_state: str = "open") -> dict:
     r = cfg.role(role)
     if not task.strip():
         raise JobError("a job needs a task")
+    if gate is not None and not gate.strip():
+        raise JobError("a gate needs the words of what the owner decides")
     if lease:
         _leases.check_names(cfg, lease)
     with lock(cfg):
@@ -83,6 +86,11 @@ def add(cfg, role: str, task: str, priority: int = 50, after: str | None = None,
             "unlock": bool(unlock), "brief": brief, "evidence": evidence, "worktree": bool(worktree),
             "store": r["store"], "status": "queued", "created": iso(), "created_t": now(), "by": by,
         }
+        if gate:
+            job["gate"] = {"text": gate.strip(), "state": gate_state}
+            if gate_state == "open":
+                job["status"] = "held"
+                job["notes"] = [f"{iso()} held: waiting on the owner: {gate.strip()}"]
         save(cfg, job)
     return job
 
@@ -92,9 +100,44 @@ def set_status(cfg, job_id: str, status: str, note: str = "", allowed_from: set 
         j = get(cfg, job_id)
         if allowed_from is not None and j["status"] not in allowed_from:
             raise JobError(f"{job_id} is {j['status']}; cannot make it {status}")
+        if status in ("queued", "running") and open_gate(j):
+            raise JobError(f"{job_id} waits on the owner's gate ({open_gate(j)}); only the owner passes it: `wz gate pass {job_id}`")
         j["status"] = status
         if note:
             j.setdefault("notes", []).append(f"{iso()} {status}: {note}")
+        save(cfg, j)
+        return j
+
+
+def open_gate(job: dict) -> str | None:
+    """The words of the owner's gate on this job while it is still shut, else None."""
+    g = job.get("gate")
+    return g.get("text") if isinstance(g, dict) and g.get("state") == "open" else None
+
+
+def gates(cfg, role: str | None = None, state: str = "open") -> list[dict]:
+    """Jobs carrying a gate in `state` ('open' or 'passed'), in queue order. An open gate on a cancelled job is not
+    waiting on anyone, so it is not listed."""
+    out = [j for j in all_jobs(cfg, role) if isinstance(j.get("gate"), dict) and j["gate"].get("state") == state]
+    if state == "open":
+        out = [j for j in out if j["status"] == "held"]
+    return queue_order(out)
+
+
+def pass_gate(cfg, job_id: str, by: str = "owner", note: str = "") -> dict:
+    """The owner's go-ahead: the held job becomes queued. The caller (cli) has already refused a role session."""
+    with lock(cfg):
+        j = get(cfg, job_id)
+        g = j.get("gate")
+        if not isinstance(g, dict):
+            raise JobError(f"{job_id} has no gate")
+        if g.get("state") != "open":
+            raise JobError(f"{job_id}'s gate was already passed")
+        if j["status"] != "held":
+            raise JobError(f"{job_id} is {j['status']}; there is nothing left to pass")
+        g.update(state="passed", passed=iso(), passed_by=by, **({"note": note} if note else {}))
+        j["status"] = "queued"
+        j.setdefault("notes", []).append(f"{iso()} queued: the owner passed the gate ({g['text']})" + (f" - {note}" if note else ""))
         save(cfg, j)
         return j
 
@@ -107,7 +150,7 @@ def hold(cfg, job_id: str, why: str = "") -> dict:
     return set_status(cfg, job_id, "held", why or "held", {"queued"})
 
 
-def release(cfg, job_id: str) -> dict:
+def release(cfg, job_id: str) -> dict:  # an open gate is refused inside set_status
     return set_status(cfg, job_id, "queued", "released", {"held"})
 
 
@@ -118,6 +161,8 @@ def wait_reason(cfg, job: dict, by_id: dict) -> str | None:
         d = by_id.get(dep)
         if d is None:
             return f"depends on {dep}, which does not exist"
+        if open_gate(d):
+            return f"waits for {dep}, which waits on the owner: {open_gate(d)} (`wz gate pass {dep}`)"
         if d["status"] != "done":
             return f"waits for {dep} ({d['status']})"
     for name in job.get("lease", []):
@@ -160,7 +205,8 @@ def remint(cfg, job_id: str, timeout=None, task: str | None = None, by: str = ""
     to = timeout or (old["timeout_s"] * 2 if old.get("timed_out") else old["timeout_s"])
     new = add(cfg, old["role"], task or old["task"], priority=old["priority"], after=old.get("after"), timeout=to,
               lease=old.get("lease", []), unlock=old.get("unlock", True), brief=old.get("brief"),
-              evidence=old.get("evidence"), worktree=old.get("worktree", True), by=by)
+              evidence=old.get("evidence"), worktree=old.get("worktree", True), by=by,
+              gate=(old.get("gate") or {}).get("text"), gate_state=(old.get("gate") or {}).get("state", "open"))
     with lock(cfg):
         o = get(cfg, job_id)
         o["reminted_as"] = new["id"]
