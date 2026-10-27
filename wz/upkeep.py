@@ -75,7 +75,8 @@ def prune(cfg, apply: bool = False, t: float | None = None) -> list[dict]:
     hold_days = float(f.get("hold_days", 7))
     pats = [re.compile(p, re.I) for p in f.get("patterns", [])]
     min_p = int(f.get("min_priority", 50))
-    live = [j for j in jobs.all_jobs(cfg) if j["status"] in ("queued", "held")]
+    # an owner's open gate is theirs to pass or cancel: prune never drops it, however long it has waited
+    live = [j for j in jobs.all_jobs(cfg) if j["status"] in ("queued", "held") and not jobs.open_gate(j)]
     acts, gone = [], set()
     ordered = jobs.queue_order(live)
     for i, a in enumerate(ordered):

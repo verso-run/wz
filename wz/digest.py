@@ -41,6 +41,7 @@ def compose(cfg, day: str | None = None, window_h: float = 24) -> str:
     for j in jobs.queue_order(finished):
         for a in (j.get("result") or {}).get("owner_asks") or []:
             asks.append((a if isinstance(a, str) else a.get("what", str(a)), j["id"]))
+    gates = jobs.gates(cfg)
     signs = approvals.pending(cfg)
     for r in signs:
         asks.append((f"Sign {r['id']}: {r['what']} (approval page or `wz sign approve {r['id']}`)", r["id"]))
@@ -54,7 +55,11 @@ def compose(cfg, day: str | None = None, window_h: float = 24) -> str:
         if len(asks) > MAX_ASKS:
             lines.append(f"\n{len(asks) - MAX_ASKS} more ask(s) wait in the reports; the lead holds them until these clear.")
     else:
-        lines.append("Nothing needs you today.")
+        lines.append("Nothing needs you today." if not gates else "No asks in the reports; the gates below wait on you.")
+    if gates:
+        lines += ["", "## Waiting on you", ""]
+        for j in gates:
+            lines.append(f"- {jobs.open_gate(j)} ({j['id']}, {j['role']}): `wz gate pass {j['id']}`")
     runs_today = _section(sync_text, "What runs today")
     if runs_today:
         lines += ["", "## What runs today", "", runs_today]

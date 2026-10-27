@@ -16,7 +16,8 @@ from .util import write_json
 LEAD_EXTRA = """
 **Lead commands:** `wz decide "<the owner's exact words>" --reading "<your reading>"` (no words: `--proposal`) ·
 `wz brief new <slug> --role <role>` · `wz job add <role> "<task>" [-p N] [--after JOB] [--lease R] [--timeout 45m]
-[--evidence "..."]` · `wz job hold|release|cancel <id>` · `wz next` (what finished since you last looked) ·
+[--evidence "..."] [--gate "<what the owner decides>"]` · `wz job hold|release|cancel <id>` · `wz gate list` (what waits on the
+owner; you cannot pass a gate) · `wz next` (what finished since you last looked) ·
 `wz watchdog` · `wz budget` · `wz merge --dry-run` · `wz promote <store>` (asks the owner to sign a release) ·
 `wz unlock <role>` · `wz resume <role|all>` · `wz sync` then `wz digest` before the digest time ·
 `wz job remint <id>` (a failed or timed-out job, dependents re-pointed) · `wz hold add|list|clear` · `wz prune` ·
