@@ -43,7 +43,11 @@ def _alive(pid: int) -> bool:
         return False
     try:                                            # a zombie (not yet reaped by its parent) is gone for our purposes
         return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
-    except OSError:
+    except OSError:                                 # no /proc (macOS), or it was reaped between the two lines: ask again
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
         return True
 
 

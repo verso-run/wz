@@ -311,13 +311,14 @@ def ensure(cfg, role: str, *, restart: bool = False, wait: float = 0.0) -> str:
     cfg.scratch(role).mkdir(parents=True, exist_ok=True)
     announce(p)
     script = _script(cfg, p)
-    r = mux.new_session(name, str(p["cwd"]), f"sh {shlex.quote(str(script))}")
+    r = mux.new_session(name, str(p["cwd"]), f"sh {shlex.quote(str(script))}", window=role)
     if r.returncode != 0:
         raise SessionError(f"tmux could not start {name}: {(r.stderr or r.stdout).strip()}")
     mux.set_option(name, "@wz_root", str(cfg.root))
     st = load(cfg, role)
     st.update(launched=True, parked=False, config_dir=p["config_dir"], sig=p["sig"])
     save(cfg, role, st)
+    _relink_hub(cfg)
     if wait:
         ok, why = wait_ready(name, wait, lambda: _exited(cfg, role))
         if not ok:
@@ -329,14 +330,23 @@ def ensure(cfg, role: str, *, restart: bool = False, wait: float = 0.0) -> str:
     return how
 
 
+def _relink_hub(cfg) -> None:
+    """A started or restarted role is a new tmux window: a live hub gets its tab (no hub: one tmux call)."""
+    from . import hub
+    hub.relink(cfg)
+
+
 def announce(p: dict) -> None:
     """The permission-mode line for the person at the keyboard, when the mode is not one where Claude asks first."""
     if p["notice"]:
         print(p["notice"], file=sys.stderr)
 
 
-def attach(name: str) -> int:
+def attach(name: str, cfg=None, role: str = "") -> int:
     if os.environ.get("TMUX"):
+        from . import hub                                   # hub imports this module
+        if cfg is not None and role and hub.focus(cfg, role):
+            return 0                                        # inside the hub: go to the role's tab, do not leave the hub
         r = mux.switch_client(name)
         if r.returncode == 0:
             return 0
@@ -379,7 +389,7 @@ def open_role(cfg, role: str, *, detach: bool = False, no_tmux: bool = False, re
         return 0
     print(f"wz: {role}: {'already running,' if how == 'running' else verb} conversation {p['name']} in tmux session {p['tmux']} "
           "(Ctrl-b then d leaves it running)", file=sys.stderr)
-    return attach(p["tmux"])
+    return attach(p["tmux"], cfg, role)
 
 
 def park(cfg, role: str) -> int:
@@ -389,6 +399,8 @@ def park(cfg, role: str) -> int:
     if was:
         _kill(name, cfg, role)
     light.clear(str(cfg.root), role)
+    if was:
+        _relink_hub(cfg)                                    # the killed window left a gap in the hub's tab numbers
     st = load(cfg, role)
     st["parked"] = True
     save(cfg, role, st)

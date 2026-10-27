@@ -432,8 +432,27 @@ background process and no hub needed. `wz light <work|ask|done|off>` is the comm
 does not load the rest of wz, so it adds a few milliseconds to a prompt or a tool call, and a repeat of the state a window
 already shows runs no tmux at all. A background job never paints a chat's window. A session that is already running keeps the
 settings it started with: `wz cli <role> --restart` (it keeps the conversation) turns the lights on. The colour is a tmux
-window option (`window-status-style`), so a theme that sets `window-status-current-style` for the window you are in hides it
-there; the same window shown as a tab elsewhere is not affected.
+window option (`window-status-style`, and the same colour underlined as `window-status-current-style`, so your own theme's
+colour for the window you are in does not hide it); the window shows it in its own tmux session and as a tab in the hub.
+
+### The hub: one terminal, a tab per role
+
+`wz hub` opens one terminal window with a tab for every role that has a live session (lead first, then the order of `wz.toml`,
+at most 9; the tab number is the key after `Ctrl-b`). The tabs are the roles' own tmux windows, linked in, not copies and not a
+tmux inside a tmux, so there is one prefix key, and the lights show on the tabs.
+
+| What | How |
+|---|---|
+| Open it, or come back | `wz hub`. It reattaches the hub when no terminal is on it, else it builds one. Inside tmux it switches your client; inside the hub it only brings the tabs up to date. |
+| A second terminal | Run `wz hub` again: a second view of the same tabs with its own current tab (`wzhub-<project>-2`); closing that terminal removes the extra view, not the hub. |
+| Change the tabs | `wz hub hide <role>` / `wz hub show <role>` (remembered in `.wz/hub.json`; the role keeps running). Starting, restarting, rolling or parking a role updates the tabs of a live hub. |
+| Close it | `wz hub kill` closes the hub; every role keeps running. `Ctrl-b d` only leaves it. |
+| Go to a role | `wz cli <role>` inside the hub selects its tab; outside it works as before. |
+| What happened | `.wz/hub.log`: one line per build, reattach, hide, show, kill and ended attach (hub still up or gone). |
+
+`wz park` closes a role's window, so its tab goes and Claude stops (tmux's `kill-session` on a role whose window is shown in
+another session would have left Claude running). Tab names are the role names; wz names a role's window when it starts it,
+and renames an older one when it first shows it. There is no full-screen picker: `hide` and `show` choose the tabs.
 
 ### Which workspace (any folder)
 
