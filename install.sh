@@ -154,10 +154,10 @@ do_verify() {
  "accounts": {"main": {"config_dir": "", "daily_usd": 5}}, "budget_usd": 5, "permission_mode": "default"}
 EOF
   wz init --simple --answers "$T/answers.json" --dir "$T/ws" --no-git >/dev/null || { rm -rf "$T"; stop "The wz self-check could not set up a test project."; }
-  grep -q 'permission_mode = "default"' "$T/ws/wz.toml" || { rm -rf "$T"; stop "The self-check config is not in the ask-first mode."; }
+  grep -q 'permission_mode = "default"' "$T/ws/wz.toml" || { rm -rf "$T"; stop "The self-check config does not ask first in its windows."; }
   wz --config "$T/ws/wz.toml" status >/dev/null || { rm -rf "$T"; stop "The wz self-check could not read its own status."; }
   rm -rf "$T"
-  say "wz works: made a throwaway test project, it is in ask-first mode, and I deleted it."
+  say "wz works: made a throwaway test project, its windows ask first and its background jobs run in auto mode, and I deleted it."
   if have claude; then claude --version; else say "(Claude Code is not installed; the setup interview needs it.)"; fi
 }
 

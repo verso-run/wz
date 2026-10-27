@@ -563,9 +563,9 @@ def cmd_status(args) -> int:
                      "queued": sum(j["status"] == "queued" for j in mine), "held": sum(j["status"] == "held" for j in mine),
                      "halted": "yes" if worker.halted(cfg, role) else "", "unlock": "yes" if unlock.has(cfg, role) else ""})
     print(f"{cfg.project} — lead {cfg.lead()} — {cfg.root}")
-    mode = cfg.permission_mode()
-    print(f"permission mode: {mode}" + ("" if mode in config.SAFE_MODES else
-          f"  ({config.MODE_FACTS[mode]} See README \"Permission mode\".)"))
+    for label, mode in (("permission mode", cfg.permission_mode()), ("job permission mode", cfg.job_permission_mode())):
+        print(f"{label}: {mode}" + ("" if mode in config.SAFE_MODES else
+              f"  ({config.MODE_FACTS[mode]} See README \"Permission mode\".)"))
     print(_table(rows, ["role", "pack", "running", "queued", "held", "halted", "unlock"]))
     for line in _waiting_on_you(cfg):
         print(line)

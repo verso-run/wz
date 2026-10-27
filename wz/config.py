@@ -25,6 +25,10 @@ _NAME = re.compile(r"^[a-z][a-z0-9-]{0,39}$")
 SAFE_MODES = ("default", "plan")
 OTHER_MODES = ("acceptEdits", "auto", "dontAsk", "manual", "bypassPermissions")
 DEFAULT_MODE = "default"
+# Background jobs (wz job add + serve, timers, --follow) have nobody to answer a prompt, so under `default` they cannot
+# write. They get their own mode, `auto`, unless [agent] job_permission_mode says otherwise. `wz cli` windows keep
+# [agent] permission_mode.
+DEFAULT_JOB_MODE = "auto"
 
 
 class ConfigError(Exception):
@@ -159,21 +163,34 @@ class Config:
 
     # ---- other sections -----------------------------------------------------------------------------------------
     def agent(self) -> dict:
-        a = {"command": "claude", "permission_mode": DEFAULT_MODE, "pass_effort": True, "default_model": ""}
+        a = {"command": "claude", "permission_mode": DEFAULT_MODE, "job_permission_mode": DEFAULT_JOB_MODE,
+             "pass_effort": True, "default_model": ""}
         a.update(self.section("agent"))
         return a
 
     def permission_mode(self) -> str:
+        """The mode of an interactive `wz cli` session."""
         return self.agent()["permission_mode"]
 
-    def mode_notice(self) -> str | None:
-        """One line for the person at the keyboard when the mode is not one where Claude Code asks first, else None."""
+    def job_permission_mode(self) -> str:
+        """The mode of a background job."""
+        return self.agent()["job_permission_mode"]
+
+    def mode_notice(self, job: bool = False) -> str | None:
+        """One line for the person at the keyboard (job=False) or in the job's log (job=True) when the mode is not one where
+        Claude Code asks first, else None."""
+        if job:
+            mode = self.job_permission_mode()
+            if mode in SAFE_MODES:
+                return None
+            return (f"wz: job permission mode is '{mode}' ([agent] job_permission_mode in {self.path}; `wz cli` sessions use "
+                    f"permission_mode). {MODE_FACTS.get(mode, '')} Set job_permission_mode to \"default\" to have jobs stop at anything "
+                    f"that needs a yes, which a background job cannot get, so it then cannot write.")
         mode = self.permission_mode()
         if mode in SAFE_MODES:
             return None
-        facts = MODE_FACTS.get(mode, "")
         return (f"wz: permission mode is '{mode}' ([agent] permission_mode in {self.path}), not 'default'. "
-                f"{facts} Set it back to \"default\" to be asked first.")
+                f"{MODE_FACTS.get(mode, '')} Set it back to \"default\" to be asked first.")
 
     def account(self, name: str) -> dict:
         return self.section("accounts").get(name, {})
@@ -200,10 +217,11 @@ class Config:
         for name, s in stores.items():
             if s.get("kind") not in ("git", "folder"):
                 errs.append(f"[stores.{name}] kind must be git or folder")
-        mode = self.section("agent").get("permission_mode", DEFAULT_MODE)
-        if mode not in SAFE_MODES + OTHER_MODES:
-            errs.append(f"[agent] permission_mode {mode!r} is not a mode wz supports "
-                        f"(use one of: {', '.join(SAFE_MODES + OTHER_MODES)}; the safe ones are {', '.join(SAFE_MODES)})")
+        for key, fallback in (("permission_mode", DEFAULT_MODE), ("job_permission_mode", DEFAULT_JOB_MODE)):
+            mode = self.section("agent").get(key, fallback)
+            if mode not in SAFE_MODES + OTHER_MODES:
+                errs.append(f"[agent] {key} {mode!r} is not a mode wz supports "
+                            f"(use one of: {', '.join(SAFE_MODES + OTHER_MODES)}; the safe ones are {', '.join(SAFE_MODES)})")
         roles = self.section("roles")
         if not roles:
             errs.append("no [roles.*] defined")

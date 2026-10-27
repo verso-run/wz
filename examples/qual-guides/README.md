@@ -152,13 +152,13 @@ the pictures beside all that. You stay in charge at two **gates**, the places wh
 
 What to know before you say "go":
 
-1. **Background helpers cannot ask you anything,** so the safe setting you started with (Claude Code asks before it
-   writes a file) stops them dead. To run the chain you change one line, once, and say so in your own words. Open
-   the file `wz.toml` in the `wz-work/qual-guides` folder in any text editor (TextEdit on a Mac). Under `[agent]`, change
-   `permission_mode = "default"` to `permission_mode = "acceptEdits"` and save. From then on every helper edits files
-   without asking you, including the ones you open yourself with `wz cli` (so Step 4's "Claude asks before it writes a
-   file" stops being true). The mode allows nothing else by itself (point 3 names the two things pre-approved for every
-   helper), and wz's guard still keeps each helper to its own files. To go back, change it to `default` again. Then tell `mission-ctl` what you did, and it writes it down. (It may not change `wz.toml` itself.)
+1. **Background helpers cannot ask you anything,** so wz runs them in Claude Code's `auto` mode (`job_permission_mode` in
+   `wz.toml`, the default): they can write files without stopping to ask, and wz's guard still keeps each helper to its
+   own files. You change nothing to run the chain. The windows you open yourself with `wz cli` stay in the ask-first
+   mode (`permission_mode = "default"`), so Step 4's "Claude asks before it writes a file" stays true. wz prints a
+   line at the start of each job saying it is in `auto` and that wz has not checked where `auto` still stops. To make
+   jobs stop and ask, set `job_permission_mode = "default"` under `[agent]`; they then cannot write. If you change
+   either setting, tell `mission-ctl` and it writes it down. (It may not change `wz.toml` itself.)
 2. **Nothing starts by itself.** There are no timers. `mission-ctl` starts the work with `wz serve` and starts it again
    after each gate and each finished job, or you can leave `wz serve --follow` running in a terminal and it carries a chain on
    to its next gate. When a window says "waiting for you", that is a gate.
@@ -183,7 +183,7 @@ Seven habits from the person who first pushed this example this far. None needs 
    to approve. "Find more reading" belonged to nobody until the librarian was given a research rule.
 2. **Ask the lead to read wz's own files before it explains a setting.** *"Read wz.toml and tell me what the permission
    mode is."* A claim about the setup should point at a line in the file, not at memory of the README.
-3. **Write a mode choice down as a decision.** When you change `permission_mode`, say why in your words and have
+3. **Write a mode choice down as a decision.** When you change `permission_mode` or `job_permission_mode`, say why in your words and have
    `mission-ctl` put it in `DECISIONS.md` (D-1 in the sample). A quiet setting change becomes a choice you made.
 4. **Use gates as holds.** *"Hold the guide until I have read the audience answers."* A held job waits; you release it
    when you are ready. You stop carrying messages between windows and still decide at the points that matter.
@@ -203,7 +203,7 @@ given a research rule by hand. This example ships both already, so those two hab
 
 | Path | What it is |
 |---|---|
-| `answers.json` | the setup answers `wz init` turns into a workspace: five helpers and their jobs in plain words, the $5 limit, Claude asking before it acts, no timers. A `roles_later` block holds the **builder**, switched off: move it into `roles` only after you have signed off the pictures. |
+| `answers.json` | the setup answers `wz init` turns into a workspace: five helpers and their jobs in plain words, the $5 limit, Claude asking before it acts in its windows and jobs running in `auto`, no timers. A `roles_later` block holds the **builder**, switched off: move it into `roles` only after you have signed off the pictures. |
 | `sources/links.md` | twelve freely available pieces of reading, each opened and read on 2026-10-26, with the quoted line and the address. Seven to twelve are the ones the made-up owner kept from the librarian's first note. |
 | `methods-base/METHODS-BASE.md` | the librarian's rules, built from those twelve, every rule with its source and a quoted line |
 | `methods-base/research/car-scent-study.md` | the librarian's research note for the car scent study: its two searches, the links, the licences as stated, checked quotes, what it could not open |
