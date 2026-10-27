@@ -8,7 +8,7 @@
 # Safe to run twice. Environment: WZ_REF (release tag), WZ_SRC (folder, file or URL to install wz from instead).
 set -eu
 
-WZ_REF="${WZ_REF:-v0.1.1}"
+WZ_REF="${WZ_REF:-v0.1.2}"
 WZ_SRC="${WZ_SRC:-https://github.com/verso-run/wz/archive/refs/tags/$WZ_REF.tar.gz}"
 UV_VERSION="${UV_VERSION:-0.11.7}"
 CLAUDE_CHANNEL="${CLAUDE_CHANNEL:-stable}"
