@@ -583,6 +583,67 @@ def test_a_role_with_its_own_folder_resumes_from_that_folder_wherever_you_are(ri
     assert arg(second, "--resume") == arg(first, "--name") == "wz-fernhill-app"
 
 
+def _pane_pids(rig, name):
+    return [int(x) for x in rig.tmux("list-panes", "-t", "=" + name, "-F", "#{pane_pid}").stdout.split()]
+
+
+def _link_into_hub(rig, name):
+    """A second tmux session ("hub") that shows the role's own window as a tab, the way a hub of roles would."""
+    assert rig.tmux("new-session", "-d", "-s", "hub", "sleep 600").returncode == 0
+    r = rig.tmux("link-window", "-d", "-s", f"={name}:", "-t", "hub:")
+    assert r.returncode == 0, r.stderr
+    assert len(rig.tmux("list-windows", "-t", "=hub", "-F", "#{window_id}").stdout.split()) == 2
+
+
+def test_park_stops_claude_even_when_the_role_window_is_linked_into_another_session(rig, cfg):
+    name = sessions.tmux_name(cfg, "mission-ctl")
+    assert rig.wz(cfg, "cli", "mission-ctl", "--detach") == 0
+    rig.calls(cfg, 1)
+    pids = _pane_pids(rig, name)
+    assert pids and all(_alive(p) for p in pids)
+    _link_into_hub(rig, name)
+    assert rig.wz(cfg, "park", "mission-ctl") == 0
+    assert wait_gone(pids) == []                                    # the launch shell and the stand-in `claude`
+    assert not rig.has(name)
+    assert len(rig.tmux("list-windows", "-t", "=hub", "-F", "#{window_id}").stdout.split()) == 1   # the tab is gone, the hub is not
+    assert rig.has("hub")
+
+
+def test_plain_kill_session_would_have_left_claude_running_in_the_linked_window(rig, cfg):
+    """The control for the test above: it only proves the fix if the old call really does leave the process behind."""
+    name = sessions.tmux_name(cfg, "mission-ctl")
+    assert rig.wz(cfg, "cli", "mission-ctl", "--detach") == 0
+    rig.calls(cfg, 1)
+    pids = _pane_pids(rig, name)
+    _link_into_hub(rig, name)
+    rig.tmux("kill-session", "-t", "=" + name)
+    assert not rig.has(name)
+    assert [p for p in pids if _alive(p)], "this tmux stops a linked window with its session; the kill-window fix is not needed here"
+
+
+def test_roll_and_restart_replace_a_linked_window_without_orphans(rig, cfg):
+    name = sessions.tmux_name(cfg, "mission-ctl")
+    assert rig.wz(cfg, "cli", "mission-ctl", "--detach") == 0
+    rig.calls(cfg, 1)
+    old = _pane_pids(rig, name)
+    _link_into_hub(rig, name)
+    assert rig.wz(cfg, "cli", "mission-ctl", "--detach", "--restart") == 0
+    assert wait_gone(old) == []
+    assert rig.has(name)
+    assert len(rig.tmux("list-windows", "-t", "=hub", "-F", "#{window_id}").stdout.split()) == 1
+
+
+def test_session_calls_are_counted_by_the_adapter(rig, cfg):
+    name = sessions.tmux_name(cfg, "mission-ctl")
+    assert rig.wz(cfg, "cli", "mission-ctl", "--detach") == 0
+    sessions.mux.reset_calls()
+    assert sessions.running(name) is True
+    assert sessions.mux.calls() == [("has-session", "-t", "=" + name)]
+    sessions.mux.reset_calls()
+    sessions.capture(name)
+    assert sessions.mux.calls() == [("capture-pane", "-p", "-t", f"={name}:")]
+
+
 def test_say_list_park_roll_and_start_all_work_from_any_folder(rig, monkeypatch, capsys):
     cfg = init_registered(rig)
     monkeypatch.chdir("/tmp")

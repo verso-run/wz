@@ -36,7 +36,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from . import charters, timers, util
+from . import charters, mux, timers, util
 
 RULE = re.compile(r"^[─-]{20,}")
 RESUME_PICKER = re.compile(r"Resume Session|No sessions match|No conversations found", re.I)
@@ -73,27 +73,22 @@ def conversation(cfg, role: str, st: dict | None = None) -> str:
 
 
 # ---- tmux ----------------------------------------------------------------------------------------------------------
-def _tmux(*args: str, check: bool = False) -> subprocess.CompletedProcess:
-    return subprocess.run(["tmux", *args], capture_output=True, text=True, check=check)
-
-
 def have_tmux() -> bool:
-    return shutil.which("tmux") is not None
+    return mux.have()
 
 
 def running(name: str) -> bool:
-    """Exact match: a bare `-t guide` would also hit a session called guide-writer."""
-    return _tmux("has-session", "-t", f"={name}").returncode == 0
+    return mux.has_session(name)
 
 
 def _kill(name: str) -> None:
+    """Stop the role's Claude for good, also when its window is linked into another tmux session (see mux.kill_role)."""
     if running(name):
-        _tmux("kill-session", "-t", f"={name}")
+        mux.kill_role(name)
 
 
 def capture(name: str) -> str:
-    r = _tmux("capture-pane", "-p", "-t", f"={name}:")
-    return r.stdout if r.returncode == 0 else ""
+    return mux.capture_pane(name)
 
 
 def classify(text: str) -> str:
@@ -245,10 +240,16 @@ def _exited(cfg, role: str) -> bool:
 EARLY_S = 30
 
 
+def project_folder(cwd: Path) -> str:
+    """The folder name Claude gives a working directory under <config dir>/projects: every character that is not an ASCII
+    letter or digit (a `/`, `.`, `_`, a space, any non-ASCII) becomes `-`."""
+    return "".join(c if c.isascii() and c.isalnum() else "-" for c in str(cwd))
+
+
 def _on_disk(config_dir: str, cwd: Path, name: str) -> bool:
     """Is there a saved conversation titled `name` for this folder? (Claude keeps them in <config dir>/projects/<folder>/*.jsonl.)"""
     base = Path(config_dir) if config_dir else Path.home() / ".claude"
-    folder = "".join(c if c.isascii() and c.isalnum() else "-" for c in str(cwd))
+    folder = project_folder(cwd)
     needle = f'"customTitle":"{name}"'
     for f in sorted((base / "projects" / folder).glob("*.jsonl")):
         try:
@@ -271,8 +272,7 @@ def _never_saved(cfg, role: str, st: dict, name: str, cwd: Path) -> bool:
 
 # ---- start, attach, stop -------------------------------------------------------------------------------------------
 def _check_owner(cfg, name: str) -> None:
-    r = _tmux("show-options", "-v", "-t", f"={name}:", "@wz_root")
-    other = r.stdout.strip()
+    other = mux.show_option(name, "@wz_root")
     if other and other != str(cfg.root):
         raise SessionError(f"a tmux session called {name} already belongs to another wz workspace ({other}); "
                            "give this project a different name in wz.toml ([project] name)")
@@ -307,10 +307,10 @@ def ensure(cfg, role: str, *, restart: bool = False, wait: float = 0.0) -> str:
     cfg.scratch(role).mkdir(parents=True, exist_ok=True)
     announce(p)
     script = _script(cfg, p)
-    r = _tmux("new-session", "-d", "-s", name, "-c", str(p["cwd"]), "-x", "200", "-y", "50", f"sh {shlex.quote(str(script))}")
+    r = mux.new_session(name, str(p["cwd"]), f"sh {shlex.quote(str(script))}")
     if r.returncode != 0:
         raise SessionError(f"tmux could not start {name}: {(r.stderr or r.stdout).strip()}")
-    _tmux("set-option", "-t", f"={name}:", "@wz_root", str(cfg.root))
+    mux.set_option(name, "@wz_root", str(cfg.root))
     st = load(cfg, role)
     st.update(launched=True, parked=False, config_dir=p["config_dir"], sig=p["sig"])
     save(cfg, role, st)
@@ -333,12 +333,12 @@ def announce(p: dict) -> None:
 
 def attach(name: str) -> int:
     if os.environ.get("TMUX"):
-        r = _tmux("switch-client", "-t", f"={name}")
+        r = mux.switch_client(name)
         if r.returncode == 0:
             return 0
         print(f"wz: could not switch this tmux client ({r.stderr.strip()}); to go there: tmux switch-client -t {name}", file=sys.stderr)
         return 1
-    return subprocess.call(["tmux", "attach-session", "-t", f"={name}"])
+    return mux.attach(name)
 
 
 def open_role(cfg, role: str, *, detach: bool = False, no_tmux: bool = False, restart: bool = False) -> int:
@@ -489,7 +489,7 @@ def pane_input(text: str) -> str | None:
 
 
 def _send(name: str, *keys: str, literal: bool = False) -> None:
-    _tmux("send-keys", "-t", f"={name}:", *(["-l"] if literal else []), *keys)
+    mux.send_keys(name, *keys, literal=literal)
 
 
 def pane_submit(name: str, text: str) -> str:
