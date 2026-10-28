@@ -52,6 +52,10 @@ wz job add bench "measure board-a idle current at 3.3 V and 5 V" --lease bench-p
 wz lease run bench-psu -- python3 bench/sweep.py
 ```
 
+**Hardware without installing wz.** [docs/WZ-LITE-HARDWARE.md](docs/WZ-LITE-HARDWARE.md) is one file that a Claude Code
+agent follows with plain files and a 30-line lock script: leases, briefs, evidence, safety stops and sign requests for
+a hardware, firmware and bench-test loop.
+
 **Admin.** Documents, email and finance drafts live in a folder store. The agent drafts. Every outward act is a sign
 request carrying the exact command. It runs once, after you sign, and only if the request has not changed since.
 
