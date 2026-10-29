@@ -96,6 +96,10 @@ def set_option(name: str, option: str, value: str) -> None:
     run("set-option", "-t", f"{_session(name)}:", option, value)
 
 
+def unset_option(name: str, option: str) -> None:
+    run("set-option", "-u", "-t", f"{_session(name)}:", option)
+
+
 def switch_client(name: str) -> subprocess.CompletedProcess:
     return run("switch-client", "-t", _session(name))
 

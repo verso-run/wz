@@ -177,6 +177,8 @@ def run(cfg, rid: str) -> dict:
 
 def _act(cfg, action: dict) -> dict:
     from .worker import _git
+    if action.get("type") == "wake":
+        return {"rc": 0, "output": "a wake needs no run: the sign is its approval (wz wake)"}
     if action.get("type") != "promote":
         return {"rc": 1, "output": f"unknown action {action.get('type')!r}"}
     s = cfg.stores()[action["store"]]

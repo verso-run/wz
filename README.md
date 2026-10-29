@@ -455,6 +455,41 @@ tmux inside a tmux, so there is one prefix key, and the lights show on the tabs.
 another session would have left Claude running). Tab names are the role names; wz names a role's window when it starts it,
 and renames an older one when it first shows it. There is no full-screen picker: `hide` and `show` choose the tabs.
 
+### Agents, wakes and escalation
+
+**One status per agent** (`wz agents`): each role session and each running job is `working`, `idle`, `stalled` or `zombie`.
+The evidence is a beat (every hook of a session touches `.wz/sessions/<role>.beat`), the light the hooks set, the pane, a
+job's output log and the report events a job writes. *Stalled* is alive with nothing moving: a turn open with no sign of life
+for `[watchdog] stall_minutes` (45), a question or login left unanswered as long, a job whose log stopped for
+`job_stall_minutes` (20), or a job that has used `warn_at` (0.9) of its time limit with no report. *Zombie* is what should be
+alive and is not, or is there twice: Claude ended in a live window, two windows run one role, a job whose supervisor is gone,
+a role running more jobs than its cap, a job that hit its limit and left no report (listed for `agent_window_hours` until
+reminted). The watchdog timer nudges a stalled session (a line typed into it, `nudges` times, `nudge_minutes` apart), then hands
+off: a P1 escalation to the lead (a zombie or a stalled job at once). Nothing is killed, restarted or cancelled. The hub's status
+bar names every stalled or zombie agent, and the digest has an Agents table.
+
+**Scheduled wakes.** A session that must speak at a set time is woken by wz, not by a timer it made for itself:
+
+```toml
+[[wake]]
+id   = "lead-digest"
+role = "mission-ctl"
+at   = "07:15"                 # local time; days = ["mon", ...] limits it; start = true brings a down session up first
+text = "Compose the daily digest and send the owner the three asks."
+```
+
+`wz wake request` files a sign for each declaration; the owner signs it once (`wz sign approve <id>`, PIN). The sign is bound to
+the declaration, so editing the role, time, days or text stops the old sign matching. The wake timer (`wz wake tick`, every
+minute) types the line into the live session, once per occurrence; an occurrence found more than `late` (3 h) after its time is
+recorded as missed, not fired. A lead that has a session and no approved wake is an alert.
+
+**Escalation.** `wz escalate raise "<blocker>" --sev P2|P1|P0 [--role <about>]`. P2 reaches the role itself, P1 the lead, P0 the
+owner through `[escalation] push` (a command; the text arrives on stdin, never through a shell). Unanswered, a blocker rises one
+level after `stale_p2` (4 h) or `stale_p1` (1 h); a P0 repeats no faster than `push_gap` (1 h), `push_max` (3) times. An
+escalation is never delivered to the agent it is about, so one about the lead goes to the owner. A role may raise P2 and P1;
+P0 comes from the lead, the owner or the watchdog, and only the owner acknowledges it (`wz escalate ack <id>`). The push rules
+are the `[escalation]` section and nothing else.
+
 ### `wz doctor`: is everything in place?
 
 `wz doctor` looks at this computer and this workspace and says, in plain words, what is fine and what is not. Each problem comes
@@ -599,7 +634,10 @@ flowchart TD
 | Flags | `wz hook flag` (PostToolUse), `wz next`, `wz wait` | finished work announces itself through files |
 | Merge | `wz merge` (timer, every 5 minutes) | ownership backstop, merge, checks, then moves the integration branch |
 | Signs | `wz sign`, `wz approve serve` | requests anyone may make; signs only the owner gives |
-| Watchdog | `wz watchdog` (timer, every 10 minutes) | lost, overdue, stuck, orphaned and idle work; unsigned requests |
+| Watchdog | `wz watchdog` (timer, every 10 minutes) | lost, overdue, stuck, orphaned and idle work; unsigned requests; stalled and zombie agents |
+| Agents | `wz agents` | one status per session or job: working, idle, stalled, zombie |
+| Wakes | `wz wake` (timer, every minute) | scheduled lines typed into a session, approved once by the owner |
+| Escalation | `wz escalate` | a blocker by severity: P2 the role, P1 the lead, P0 the owner's phone |
 | Budget | `wz budget` | daily spend per account from each job's reported cost; serve stops starting jobs at the cap |
 | Records | `wz decide`, `wz ledger`, `wz brief`, `wz sync`, `wz digest` | the written record and the morning digest |
 | Andon cord | `wz halt <role>`, `wz halt all` | anyone stops a lane at once; only the lead lifts it |
