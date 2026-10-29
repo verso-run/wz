@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import (__version__, packs, approvals, bench, budget, charters, config, digest, doctor, featureflags, flags, guard, hands, hub, jobs, light,
+from . import (__version__, packs, agents, approvals, escalate, wakes, bench, budget, charters, config, digest, doctor, featureflags, flags, guard, hands, hub, jobs, light,
                leases, merge, records, registry, release, review, sessions, worker, scan, setup_mode, team, timers, unlock, upkeep, watchdog)
 from .util import now
 
@@ -344,6 +344,62 @@ def cmd_watchdog(args) -> int:
             print(f"{a['kind']:9} {a['ref']:10} {a['text']}")
         if not alerts:
             print("no alerts")
+    return 0
+
+
+def cmd_agents(args) -> int:
+    cfg = _cfg(args)
+    rows = agents.tick(cfg) if args.tick else agents.table(cfg)
+    if args.json:
+        print(json.dumps(rows, indent=2))
+        return 0
+    if not rows:
+        print("no agents: no role has a live session and no job is running")
+        return 0
+    order = {s: i for i, s in enumerate(("zombie", "stalled", "working", "idle"))}
+    rows = sorted(rows, key=lambda r: (order[r["status"]], r["key"]))
+    print(_table([{**r, "why": r["reason"][:90]} for r in rows], ["key", "status", "why"]))
+    return 0
+
+
+def cmd_wake(args) -> int:
+    cfg = _cfg(args)
+    if args.action == "tick":
+        if os.environ.get("WZ_ROLE"):
+            raise SystemExit("wz wake tick is the timer's; a role session does not run it")
+        wakes.request_missing(cfg)
+        for r in wakes.tick(cfg, dry_run=args.dry_run):
+            if not args.quiet:
+                print(f"{r['id']} -> {r['role']} ({r['at']}): {r['outcome']}")
+    elif args.action == "request":
+        made = wakes.request_missing(cfg)
+        print(f"filed {', '.join(made)}; the owner signs with `wz sign approve <id>`" if made else "nothing to ask: every declared wake has a request")
+    else:
+        print(_table(wakes.table(cfg), ["id", "role", "at", "days", "approval", "next", "last"]) if wakes.declared(cfg)
+              else "no wakes declared ([[wake]] in wz.toml)")
+    return 0
+
+
+def cmd_escalate(args) -> int:
+    cfg = _cfg(args)
+    try:
+        if args.action == "ack":
+            e = escalate.ack(cfg, args.id, note=args.note or "")
+            print(f"{e['id']} acknowledged")
+        elif args.action == "tick":
+            for e in escalate.tick(cfg):
+                print(f"{e['id']} is {e['sev']}: {e['text'][:80]}")
+        elif args.action == "list":
+            rows = [{"id": e["id"], "state": e["state"], "now": e["sev"], "raised": e["sev0"], "about": e.get("subject") or "-",
+                     "pushes": e["pushes"], "text": e["text"][:60]} for e in escalate.all_escalations(cfg)
+                    if args.all or e["state"] == "open"]
+            print(_table(rows, ["id", "state", "now", "raised", "about", "pushes", "text"]))
+        else:
+            e = escalate.raise_(cfg, args.text, sev=args.sev, subject=args.role or "", ref=args.ref or "", by=_me(),
+                                key=f"manual:{args.key}" if args.key else "")
+            print(f"{e['id']} {e['sev']}: " + "; ".join(f"{t.get('to', '')} {t.get('outcome', t.get('note', ''))}" for t in e["trail"]))
+    except escalate.EscalationError as e:
+        raise SystemExit(f"wz escalate: {e}")
     return 0
 
 
@@ -988,6 +1044,34 @@ def parser() -> argparse.ArgumentParser:
     s = add("watchdog", cmd_watchdog, "lost, overdue, stuck, orphaned and idle work; unsigned requests")
     s.add_argument("--json", action="store_true")
     s.add_argument("--quiet", action="store_true")
+
+    s = add("agents", cmd_agents, "one status per agent (session or job): working, idle, stalled, zombie")
+    s.add_argument("--json", action="store_true")
+    s.add_argument("--tick", action="store_true", help="also nudge and hand off (the watchdog timer does this)")
+
+    s = add("wake", cmd_wake, "scheduled wakes declared in wz.toml: list, ask the owner to approve, fire the due ones (the wake timer)")
+    ws = s.add_subparsers(dest="action")
+    ws.add_parser("list")
+    ws.add_parser("request", help="file the owner's sign for every declared wake that has none")
+    a = ws.add_parser("tick", help="fire the approved wakes that are due")
+    a.add_argument("--dry-run", action="store_true")
+    a.add_argument("--quiet", action="store_true")
+    s.set_defaults(action="list", dry_run=False, quiet=False)
+
+    s = add("escalate", cmd_escalate, "a blocker by severity: P2 the role, P1 the lead, P0 the owner (rises when nobody answers)")
+    es = s.add_subparsers(dest="action", required=True)
+    a = es.add_parser("raise")
+    a.add_argument("text")
+    a.add_argument("--sev", default="P2", type=str.upper, choices=list(escalate.SEVERITIES))
+    a.add_argument("--role", help="the role the blocker is about (default: the lead)")
+    a.add_argument("--ref")
+    a.add_argument("--key", help="raising the same key twice while it is open does nothing")
+    a = es.add_parser("ack")
+    a.add_argument("id")
+    a.add_argument("--note")
+    a = es.add_parser("list")
+    a.add_argument("--all", action="store_true")
+    es.add_parser("tick")
 
     s = add("next", cmd_next, "what happened since the lead last looked")
     s.add_argument("--peek", action="store_true", help="do not move the cursor")

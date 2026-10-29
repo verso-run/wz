@@ -9,6 +9,9 @@ The state is one line in `<workspace>/.wz/sessions/<role>.light`: the state and 
 state on the same pane twice does nothing and starts no tmux. The colour is a tmux *window* option set on the pane's own
 window, so it shows in the role's session and in any other session that window is linked into (a hub's tab).
 
+Each call also touches `<workspace>/.wz/sessions/<role>.beat`, whatever the state: the role's beat, which the agent
+watchdog (wz/agents.py) reads. The touch is one utime on a file that already exists (about 20 us), and costs no tmux call.
+
 It does nothing, and exits 0, unless WZ_ROLE is set and WZ_JOB is not: a background job shares the hook settings with the
 role's chat and must not paint the chat's window. A hook must never fail Claude, so every other problem is also an exit 0.
 """
@@ -29,6 +32,25 @@ def light_file(home: str, role: str) -> str:
     return os.path.join(home, ".wz", "sessions", f"{role}.light")
 
 
+def beat_file(home: str, role: str) -> str:
+    return os.path.join(home, ".wz", "sessions", f"{role}.beat")
+
+
+def _beat(home: str, role: str) -> None:
+    path = beat_file(home, role)
+    try:
+        os.utime(path)
+    except FileNotFoundError:
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "a"):
+                pass
+        except OSError:
+            pass
+    except OSError:
+        pass
+
+
 def _home(env) -> str:
     if env.get("WZ_HOME"):
         return env["WZ_HOME"]
@@ -47,6 +69,7 @@ def set_light(state: str, env=os.environ) -> int:
     role, home, pane = env.get("WZ_ROLE", ""), _home(env), env.get("TMUX_PANE", "")
     if state not in STATES or not role or env.get("WZ_JOB") or not home or not pane:
         return 0
+    _beat(home, role)
     path = light_file(home, role)
     want = f"{state} {pane}"
     have = _read(path)

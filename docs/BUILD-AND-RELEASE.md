@@ -77,7 +77,7 @@ whether it still holds. Clearing a hold needs a decision row.
 | holds with expiry | `wz hold` | above |
 | andon halt | `wz halt <role\|all>` | Anyone pulls it. Only the lead lifts it. A crossed bench limit pulls it too. |
 | budget controller | `[budget] daily_usd`, `[accounts.<a>] daily_usd` | Serve starts nothing past a cap. Running jobs finish. |
-| watchdog | `wz watchdog` (every 10 min) | LOST, OVERDUE, STUCK, ORPHANED, IDLE, UNSIGNED, HAND, LEASE and HOLD alerts. |
+| watchdog | `wz watchdog` (every 10 min) | LOST, OVERDUE, STUCK, ORPHANED, IDLE, UNSIGNED, HAND, LEASE, HOLD, STALLED, ZOMBIE and WAKE alerts. |
 | nightly jobs | `[[nightly]] role, task, priority, timeout, lease` | Queued once per day at `[project] nightly_time`. |
 | daily sync and digest | `wz sync`, `wz digest` | The lead's section first. At most three asks, and the lead's own errors named. |
 | status dashboard | `wz status --html status/dashboard.html` | A static page. Publish it wherever the owner reads. |

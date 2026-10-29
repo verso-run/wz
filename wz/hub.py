@@ -124,6 +124,19 @@ def _style(cfg, name: str, *, secondary: bool, then: tuple = ()) -> None:
     mux.run(*args)
 
 
+def paint(cfg, text: str) -> None:
+    """Show `text` at the right of every hub session's status bar, or clear it when it is empty. Touches nothing else (one
+    list-sessions call when there is no hub)."""
+    mine = _mine(cfg, mux.list_sessions())
+    for s in mine:
+        if text:
+            mux.set_option(s["name"], "status-right-length", "120")
+            mux.set_option(s["name"], "status-right", text)
+        else:
+            mux.unset_option(s["name"], "status-right")
+            mux.unset_option(s["name"], "status-right-length")
+
+
 def _hub_tabs(wins: list[dict], hub: str) -> list[dict]:
     return sorted((w for w in wins if w["session"] == hub and not w["hub"]), key=lambda w: w["index"])
 
