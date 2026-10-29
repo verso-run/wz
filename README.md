@@ -29,8 +29,10 @@ state under `.wz/`. Agents coordinate through those files, not by messaging each
 
 The core does not care whether the work is code. The workflow packs give each kind of role its default rules.
 
-**Software.** Roles own paths in git repositories. Jobs run on `wz/<role>/<job>` branches. The merge step runs your
-checks and moves the integration branch. You sign each release from integration to main.
+**Software.** Roles own paths in git repositories. Jobs run on `wz/<role>/<job>` branches. The merge queue stacks the
+finished branches, runs your checks once on the stack, and moves the integration branch only to a commit the checks passed
+on; a red stack is bisected to the bad branch, which is bounced alone while the rest land. You sign each release from
+integration to main.
 
 ```sh
 wz job add app "add CSV export to the history page" --evidence "tests/test_export.py passes"
@@ -150,7 +152,7 @@ Full reference: [docs/BUILD-AND-RELEASE.md](docs/BUILD-AND-RELEASE.md).
 | Pins carry parameters only | `[release] pin_params` | Hard invariants stay in the code. A pin may set only declared scalar parameters. |
 | Cut, sign, presign window | `wz promote`, `wz sign`, `wz hold add <store> --level FREEZE` | The candidate cannot move while the owner signs it. |
 | Rollback and revert rehearsal | `[rings.<ring>] rollback`, `wz ring rehearse <ring>` | Deploy, then rollback, then deploy again, on an unsigned ring, before the revert is ever needed. |
-| Merge bot and CI queue | `wz merge` (timer) | Ownership backstop, checks, compare-and-swap onto integration. |
+| Merge bot and CI queue | `wz merge` (timer) | Ownership backstop, batch of branches, one check pass, bisect to the bad one, compare-and-swap onto integration. |
 | Shipped means read on the live ring | `wz ring read <ring> <field>` | "Live" quotes a field the running ring served, with its read time, kept under `status/live/`. |
 | Post-run or field-test review | `wz review collect <session>`, `wz review words` | Collects the session, packs metrics, drafts the review. It asks the owner only for their words. |
 | Backlog refill | `wz backlog refill` | Open ledger rows land in each role's backlog once. |
@@ -597,7 +599,7 @@ flowchart TD
 | Serve | `wz serve` (timer, every minute; `--follow` by hand) | claims ready jobs within each role's cap and the budget; one supervisor per job |
 | Guard | `wz hook guard` (PreToolUse) | ownership, pattern kills, secrets, unlocks, protected branches, owner-only commands, web and MCP tools |
 | Flags | `wz hook flag` (PostToolUse), `wz next`, `wz wait` | finished work announces itself through files |
-| Merge | `wz merge` (timer, every 5 minutes) | ownership backstop, merge, checks, then moves the integration branch |
+| Merge | `wz merge` (timer, every 5 minutes) | ownership backstop, then the batch queue: stack, one check pass, bisect a red stack to the bad branch, then moves the integration branch |
 | Signs | `wz sign`, `wz approve serve` | requests anyone may make; signs only the owner gives |
 | Watchdog | `wz watchdog` (timer, every 10 minutes) | lost, overdue, stuck, orphaned and idle work; unsigned requests |
 | Budget | `wz budget` | daily spend per account from each job's reported cost; serve stops starting jobs at the cap |
