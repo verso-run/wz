@@ -38,9 +38,9 @@ def test_red_check_refuses(tmp_path):
     j = done_job(cfg)
     before = git(cfg.store_root("app"), "rev-parse", "integration")
     v = merge.merge(cfg, **QUIET)
-    assert v[0]["verdict"] == "red" and v[0]["check"] == "false"
+    assert v[0]["verdict"] == "base-red" and v[0]["check"] == "false"       # the tip fails too: not this job's fault
     assert git(cfg.store_root("app"), "rev-parse", "integration") == before
-    assert jobs.get(cfg, j["id"])["merge_refused"] == "red"
+    assert "merge_refused" not in jobs.get(cfg, j["id"])
 
 
 def test_ownership_backstop(project, monkeypatch):
