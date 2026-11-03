@@ -119,6 +119,19 @@ def test_gate_budget_leaves_the_rest_waiting(repo, tmp_path):
     assert "bad.txt" not in tree(repo) and "src/a.txt" not in tree(repo)      # nothing moved without a green pass
 
 
+def test_check_that_dirties_the_worktree_does_not_crash_the_bisect(repo, tmp_path):
+    (repo / "stamp").write_text("0")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "stamp")
+    es = [branch(repo, "a", {"src/a.txt": "x"}), branch(repo, "b", {"stamp": "b"}),
+          branch(repo, "c", {"bad.txt": "y", "out.log": "from c"})]
+    # the check rewrites a tracked file and leaves an untracked one, then fails when bad.txt is present
+    checks = ["date +%s%N > stamp; echo junk > out.log; test ! -e bad.txt"]
+    out = mergeq.run_queue(repo, "integration", es, checks, **QUIET)
+    assert verdicts(out) == {"a": "merged", "b": "merged", "c": "red"}
+    assert "out.log" not in tree(repo) and "src/a.txt" in tree(repo)
+
+
 def test_dry_run_moves_nothing_but_finds_the_bad_one(repo, tmp_path):
     checks, _ = gate_log(repo, tmp_path)
     es = [branch(repo, n, {f"src/{n}.txt": "x", **({"bad.txt": "y"} if n == "b" else {})}) for n in "abc"]

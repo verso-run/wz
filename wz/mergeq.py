@@ -55,6 +55,13 @@ def _gate(tree, checks: list[str], timeout: int) -> tuple[bool, str, str]:
     return True, "", ""
 
 
+def _scrub(tmp) -> None:
+    """Drop what the last check left in the shared worktree (rewritten tracked files, untracked outputs), so the next
+    checkout can neither be refused nor carry a stray file into a later merge."""
+    git(tmp, "reset", "-q", "--hard", check=False)
+    git(tmp, "clean", "-fdxq", check=False)
+
+
 def run_queue(repo, integ: str, entries: list[Entry], checks: list[str], *, remote: str = "", timeout: int = 1800,
               batch_max: int = DEFAULT_BATCH, max_gate_runs: int = DEFAULT_MAX_GATE_RUNS, dry_run: bool = False,
               say=print) -> dict:
@@ -80,7 +87,8 @@ def run_queue(repo, integ: str, entries: list[Entry], checks: list[str], *, remo
             return seen[sha]
         if stats["gate_runs"] >= max_gate_runs:
             return None
-        git(tmp, "checkout", "-q", "--detach", sha)
+        _scrub(tmp)
+        git(tmp, "checkout", "-q", "-f", "--detach", sha)
         git(tmp, "clean", "-fdxq", check=False)
         stats["gate_runs"] += 1
         if why == "bisect":
@@ -101,7 +109,8 @@ def run_queue(repo, integ: str, entries: list[Entry], checks: list[str], *, remo
             batch, pending = pending[:batch_max], pending[batch_max:]
             stats["batches"] += 1
             # 1. STACK
-            git(tmp, "checkout", "-q", "--detach", tip)
+            _scrub(tmp)
+            git(tmp, "checkout", "-q", "-f", "--detach", tip)
             stack: list[tuple[Entry, str]] = []
             for e in batch:
                 m = git(tmp, "merge", "--no-ff", "--no-edit", "-m", f"wz merge {e.branch} ({e.id}, {e.role})", e.branch, check=False)
