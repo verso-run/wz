@@ -98,7 +98,7 @@ def test_lease_run_holds_for_one_command(project):
 
 def test_linux_units(project):
     units = timers.linux_units(project)
-    assert set(units) == {f"wz-fernhill-{n}.{k}" for n in ("serve", "merge", "watchdog", "digest", "nightly") for k in ("service", "timer")}
+    assert set(units) == {f"wz-fernhill-{n}.{k}" for n in ("serve", "merge", "watchdog", "wake", "digest", "nightly") for k in ("service", "timer")}
     assert "KillMode=process" in units["wz-fernhill-serve.service"]
     assert "OnUnitActiveSec=60s" in units["wz-fernhill-serve.timer"]
     assert "OnCalendar=*-*-* 08:00:00" in units["wz-fernhill-digest.timer"]

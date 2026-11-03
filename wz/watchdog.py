@@ -9,8 +9,13 @@
   HAND       a hand-step waiting for a person (every one is shown until it is answered or expires)
   LEASE      a lease held past its expiry (shown, never taken over)
   HOLD       a hold that expired without being cleared (it no longer blocks; the lead decides if it should)
+  STALLED    an agent (a role's session or a running job) alive with no progress; a session is nudged first (wz/agents.py)
+  ZOMBIE     an agent that should be alive and is not, or is there twice: a dead Claude in a live window, two windows for one
+             role, a job whose supervisor is gone, a job that hit its time limit and left no report
+  WAKE       a scheduled wake that is unsigned, denied or missed, or a lead with no approved wake (wz/wakes.py)
 
-Alerts go to .wz/watchdog.json; a new alert is also an event, so it reaches the lead through `wz next`.
+Alerts go to .wz/watchdog.json; a new alert is also an event, so it reaches the lead through `wz next`. A tick also moves the
+agents (nudge, handoff) and the open escalations (wz/escalate.py): a stalled agent nobody answers climbs to the lead, then the owner.
 """
 from __future__ import annotations
 
@@ -23,6 +28,7 @@ GRACE_S = 300
 
 
 def check(cfg, t: float | None = None, apply: bool = True) -> list[dict]:
+    from . import agents, escalate, wakes             # these import worker, which imports GRACE_S from here
     t = now() if t is None else t
     wd = cfg.section("watchdog")
     queued_s = float(wd.get("queued_hours", 6)) * 3600
@@ -76,7 +82,11 @@ def check(cfg, t: float | None = None, apply: bool = True) -> list[dict]:
         if h["state"] == "expired" and h["level"] != "NOTE":
             alerts.append({"kind": "HOLD", "ref": h["id"], "role": h.get("by", ""),
                            "text": f"{h['level']} on {h['ref']} expired {h['expires']} uncleared: {h['text']}"})
+    rows = agents.tick(cfg, t, every=every) if apply else agents.table(cfg, t, every=every)
+    alerts += agents.alerts(rows, skip={a["ref"] for a in alerts if a["kind"] in ("LOST", "OVERDUE")})
+    alerts += wakes.alerts(cfg, t)
     if apply:
+        escalate.tick(cfg, t)
         prev = {(a["kind"], a["ref"]) for a in (read_json(cfg.state / "watchdog.json") or {}).get("alerts", [])}
         for a in alerts:
             if (a["kind"], a["ref"]) not in prev:

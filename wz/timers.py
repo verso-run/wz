@@ -2,7 +2,8 @@
 
   serve     every minute     start ready jobs (quick; each job runs in its own supervisor)
   merge     every 5 minutes  integrate finished branches
-  watchdog  every 10 minutes surface lost, overdue, stuck and idle work
+  watchdog  every 10 minutes surface lost, overdue, stuck and idle work; stalled and zombie agents; escalations
+  wake      every minute     fire the scheduled wakes the owner approved (a wake is a line typed into a session)
   digest    daily            compose the owner's digest at [project] digest_time
   nightly   daily            queue the [[nightly]] jobs at [project] nightly_time (default 02:30)
 
@@ -24,6 +25,7 @@ JOBS = [
     ("serve", ["serve", "--quiet"], 60),
     ("merge", ["merge", "--quiet"], 300),
     ("watchdog", ["watchdog", "--quiet"], 600),
+    ("wake", ["wake", "tick", "--quiet"], 60),
     ("digest", ["digest"], None),
     ("nightly", ["nightly"], None),
 ]

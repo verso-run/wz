@@ -244,6 +244,8 @@ class Config:
             acct = r.get("account")
             if acct and acct not in self.section("accounts"):
                 errs.append(f"[roles.{name}] account {acct!r} is not an [accounts.*] entry")
+        from . import escalate, wakes
+        errs += wakes.problems(self) + escalate.problems(self)
         return errs
 
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from . import approvals, budget, jobs, watchdog
+from . import agents, approvals, budget, escalate, jobs, watchdog
 from .records import TEMPLATES, cell
 from .util import now, today
 
@@ -43,6 +43,8 @@ def compose(cfg, day: str | None = None, window_h: float = 24) -> str:
             asks.append((a if isinstance(a, str) else a.get("what", str(a)), j["id"]))
     gates = jobs.gates(cfg)
     signs = approvals.pending(cfg)
+    for e in escalate.owner_asks(cfg):                  # a P0 comes before everything else the owner is asked
+        asks.insert(0, (f"{e['sev']} {e['id']}: {e['text']} (acknowledge: `wz escalate ack {e['id']}`)", e["id"]))
     for r in signs:
         asks.append((f"Sign {r['id']}: {r['what']} (approval page or `wz sign approve {r['id']}`)", r["id"]))
     sync_text = (cfg.root / "status" / f"SYNC-{day}.md")
@@ -78,6 +80,14 @@ def compose(cfg, day: str | None = None, window_h: float = 24) -> str:
               f"{sum(j['status'] == 'queued' for j in queued)} queued, {sum(j['status'] == 'held' for j in queued)} held."]
     for a in alerts:
         lines.append(f"- {a['kind']} {a['ref']}: {a['text']}")
+    rows = agents.table(cfg)
+    if rows:
+        lines += ["", "## Agents", ""] + agents.lines(rows)
+    live = [e for e in escalate.open_ones(cfg)]
+    if live:
+        lines += ["", "## Open escalations", "", "| id | now | raised | about | text |", "|---|---|---|---|---|"]
+        for e in live:
+            lines.append(f"| {e['id']} | {e['sev']} | {e['sev0']} by {e['by']} | {e.get('subject') or '-'} | {cell(e['text'])[:140]} |")
     lines += ["", "## Spend today", "", "| account | spent USD | cap USD |", "|---|---|---|"]
     for b in budget.table(cfg, day):
         lines.append(f"| {b['account']} | {b['spent']:.2f} | {b['cap'] if b['cap'] is not None else '-'} |")
